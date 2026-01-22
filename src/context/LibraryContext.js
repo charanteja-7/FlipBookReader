@@ -3,6 +3,8 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { getAllBooks, addBook as dbAddBook, deleteBook as dbDeleteBook } from '@/lib/storage';
 import { extractCover } from '@/lib/pdf-utils';
+import { v4 as uuidv4 } from 'uuid';
+
 
 
 const LibraryContext = createContext();
@@ -32,7 +34,7 @@ export const LibraryProvider = ({ children }) => {
         try {
             const cover = await extractCover(file);
             const newBook = {
-                id: crypto.randomUUID(),
+                id: uuidv4(),
                 title: file.name.replace('.pdf', ''),
                 fileBlob: file, // IDB can store Blobs
                 coverImage: cover,
