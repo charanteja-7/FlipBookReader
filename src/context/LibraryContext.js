@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getAllBooks, addBook as dbAddBook, deleteBook as dbDeleteBook } from '@/lib/storage';
+import { getAllBooks, addBook as dbAddBook, deleteBook as dbDeleteBook, updateBook as dbUpdateBook } from '@/lib/storage';
 import { extractCover } from '@/lib/pdf-utils';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -28,7 +28,7 @@ export const LibraryProvider = ({ children }) => {
         refreshBooks();
     }, []);
 
-    const addBook = async (file) => {
+    const addBook = async (file, genre = 'Uncategorized') => {
         if (!file) return;
 
         try {
@@ -40,6 +40,8 @@ export const LibraryProvider = ({ children }) => {
                 coverImage: cover,
                 dateAdded: new Date(),
                 lastReadPage: 0,
+                genre: genre,
+                isFavorite: false
             };
 
             await dbAddBook(newBook);
@@ -54,8 +56,21 @@ export const LibraryProvider = ({ children }) => {
         await refreshBooks();
     };
 
+    const toggleFavorite = async (id) => {
+        const book = books.find(b => b.id === id);
+        if (book) {
+            await dbUpdateBook(id, { isFavorite: !book.isFavorite });
+            await refreshBooks();
+        }
+    }
+
+    const updateBookGenre = async (id, newGenre) => {
+        await dbUpdateBook(id, { genre: newGenre });
+        await refreshBooks();
+    }
+
     return (
-        <LibraryContext.Provider value={{ books, loading, addBook, removeBook }}>
+        <LibraryContext.Provider value={{ books, loading, addBook, removeBook, toggleFavorite, updateBookGenre }}>
             {children}
         </LibraryContext.Provider>
     );
