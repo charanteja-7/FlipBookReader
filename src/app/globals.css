@@ -4,10 +4,11 @@
   --bg-paper: #fdfaf6;
   --text-primary: #2c2825;
   --text-secondary: #5d5955;
-  --accent-color: #8b5cf6; /* Soft Violet for UI accents */
+  --accent-color: #8b5cf6;
+  /* Soft Violet for UI accents */
   --shadow-book: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
-  --shadow-page: 0 0 10px rgba(0,0,0,0.05);
-  
+  --shadow-page: 0 0 10px rgba(0, 0, 0, 0.05);
+
   --font-serif: 'Georgia', 'Times New Roman', serif;
   --font-sans: 'Inter', system-ui, sans-serif;
 }
@@ -37,11 +38,16 @@ body {
   background-color: var(--bg-app);
   color: var(--text-primary);
   font-family: var(--font-sans);
-  transition: background-color 0.3s ease, color 0.3s ease;
-  overflow: hidden; /* App-like feel */
+  transition: background-color 0.3s ease,
+    color 0.3s ease;
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   font-family: var(--font-serif);
   font-weight: 600;
 }

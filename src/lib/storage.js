@@ -43,3 +43,14 @@ export const updateBookProgress = async (id, lastReadPage) => {
     await db.put(STORE_NAME, book);
   }
 };
+
+export const updateBook = async (id, updates) => {
+  const db = await initDB();
+  const book = await db.get(STORE_NAME, id);
+  if (book) {
+    const updatedBook = { ...book, ...updates };
+    await db.put(STORE_NAME, updatedBook);
+    return updatedBook;
+  }
+  return null;
+};
