@@ -24,9 +24,7 @@ export default function ReaderPage() {
   const [page, setPage] = useState(0),
     [total, setTotal] = useState(0),
     [preferences, setPreferences] = useState(defaults);
-  const [reducedMotion, setReducedMotion] = useState(false),
-    [wide, setWide] = useState(false),
-    [turning, setTurning] = useState(false);
+  const [reducedMotion, setReducedMotion] = useState(false);
   const [isFullscreen, setFullscreen] = useState(false),
     [focused, setFocused] = useState(false),
     [revealed, setRevealed] = useState(false);
@@ -40,18 +38,13 @@ export default function ReaderPage() {
   const router = useRouter();
   const { updateReadingState } = useLibrary();
   const bookId = book?.id;
-  const step = wide && !['single', 'text'].includes(preferences.layout) ? 2 : 1;
   useEffect(() => {
     let cancelled = false;
     setPreferences(loadPreferences());
-    const motion = matchMedia('(prefers-reduced-motion: reduce)'),
-      screen = matchMedia('(min-width: 744px)');
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
     setReducedMotion(motion.matches);
-    setWide(screen.matches);
-    const onMotion = () => setReducedMotion(motion.matches),
-      onSize = () => setWide(screen.matches);
+    const onMotion = () => setReducedMotion(motion.matches);
     motion.addEventListener('change', onMotion);
-    screen.addEventListener('change', onSize);
     const id = new URLSearchParams(location.search).get('id');
     (async () => {
       try {
@@ -80,7 +73,6 @@ export default function ReaderPage() {
     return () => {
       cancelled = true;
       motion.removeEventListener('change', onMotion);
-      screen.removeEventListener('change', onSize);
       clearTimeout(hideTimer.current);
     };
   }, []);
@@ -125,6 +117,7 @@ export default function ReaderPage() {
     [bookId, persist],
   );
   const go = useCallback((value) => reader.current?.turnTo(value), []);
+  const turn = useCallback((direction) => reader.current?.turn(direction), []);
   const setZoom = useCallback((value, fit = false) => {
     const zoom = clampZoom(value);
     if (fit) reader.current?.resetView();
@@ -251,20 +244,12 @@ export default function ReaderPage() {
         ['ArrowLeft', 'ArrowRight'].includes(event.key)
       )
         return;
-      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
+      if (['ArrowLeft', 'ArrowRight'].includes(event.key)) {
         event.preventDefault();
-        go(
-          event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? totalRef.current - 1
-              : pageRef.current +
-                (event.key === 'ArrowRight'
-                  ? pageRef.current === 0
-                    ? 1
-                    : step
-                  : -step),
-        );
+        turn(event.key === 'ArrowRight' ? 1 : -1);
+      } else if (['Home', 'End'].includes(event.key)) {
+        event.preventDefault();
+        go(event.key === 'Home' ? 0 : totalRef.current - 1);
       }
     }
     document.addEventListener('keydown', key);
@@ -272,11 +257,11 @@ export default function ReaderPage() {
   }, [
     fullscreen,
     go,
+    turn,
     immersive,
     revealed,
     preferences.zoom,
     setZoom,
-    step,
     toggleBookmark,
   ]);
   async function leave() {
@@ -352,7 +337,6 @@ export default function ReaderPage() {
         onZoom={setZoom}
         reducedMotion={reducedMotion}
         immersive={immersive}
-        onTurning={setTurning}
         onReady={setReady}
       />
       <div
@@ -405,10 +389,15 @@ export default function ReaderPage() {
           total={total}
           page={page}
           go={go}
-          step={step}
-          turning={turning || !ready}
+          turn={turn}
+          ready={ready}
         />
       </div>
+      {immersive && total > 0 && (
+        <span key={page} className="page-toast" aria-hidden="true">
+          {page + 1} <small>of {total}</small>
+        </span>
+      )}
       {immersive && (
         <p className="sr-only" role="status">
           Book-only view. Tap the screen edge, or use Space or Tab, to reveal

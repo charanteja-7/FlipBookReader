@@ -41,12 +41,16 @@ const FlipBook = forwardRef(function FlipBook(
   const resetRequested = useRef(false);
   const engine = useRef(null);
   const zoomRef = useRef(zoom);
+  // Turns requested while a page is still moving: a relative count, or an exact page.
+  const queued = useRef({ steps: 0, target: null });
+  const drain = useRef(null);
   const callbacks = useRef({ onZoom, onPageChange, onTurning, onReady });
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [pdf, setPdf] = useState(null);
   const [ratio, setRatio] = useState(1.414);
   const [pixelRatio, setPixelRatio] = useState(1);
   const [turning, setTurning] = useState(false);
+  const [heading, setHeading] = useState(null);
   const plain = layout === 'text' || reducedMotion || pdf?.numPages === 1;
   const single = plain || layout === 'single' || size.width < 720;
   const gutter = immersive ? 8 : 12;
@@ -61,18 +65,44 @@ const FlipBook = forwardRef(function FlipBook(
   );
   const height = Math.floor(width * ratio);
   const scale = zoom / 100;
+  const count = pdf?.numPages || 0;
+  // A lone front or back cover sits centered; it slides as soon as a turn begins.
+  const spreadAt = heading ?? currentPage;
+  const pose = single
+    ? 'open'
+    : spreadAt === 0
+      ? 'front'
+      : count % 2 === 0 && spreadAt >= count - 1
+        ? 'back'
+        : 'open';
+  // Page-edge thickness on either side of the spread shows how far along the reader is.
+  const depth = Math.min(10, Math.max(2, Math.round(count / 14)));
+  const read = count > 1 ? Math.round((depth * currentPage) / (count - 1)) : 0;
   useEffect(() => {
     callbacks.current = { onZoom, onPageChange, onTurning, onReady };
     zoomRef.current = zoom;
   }, [onZoom, onPageChange, onTurning, onReady, zoom]);
   useEffect(() => {
-    const observer = new ResizeObserver(([entry]) =>
-      setSize({
-        width: entry.contentRect.width,
-        height: entry.contentRect.height,
-      }),
-    );
-    observer.observe(host.current);
+    // Measure without scrollbars: a curling page briefly overflows the stage, and a
+    // scrollbar-sized resize would rebuild the book in the middle of the gesture.
+    const element = host.current;
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(element);
+      const width =
+        element.offsetWidth -
+        parseFloat(style.paddingLeft) -
+        parseFloat(style.paddingRight);
+      const height =
+        element.offsetHeight -
+        parseFloat(style.paddingTop) -
+        parseFloat(style.paddingBottom);
+      setSize((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    });
+    observer.observe(element);
     return () => observer.disconnect();
   }, []);
   useEffect(() => {
@@ -166,39 +196,84 @@ const FlipBook = forwardRef(function FlipBook(
     const busy = event.data === 'flipping' || event.data === 'user_fold';
     setTurning(busy);
     callbacks.current.onTurning?.(busy);
+    if (busy) {
+      const controller = engine.current;
+      const calc = controller?.getFlipController().getCalculation();
+      if (calc) {
+        const index = controller.getCurrentPageIndex();
+        // FlipDirection.BACK is 1. A spread moves two pages per turn.
+        setHeading(Math.max(0, index + (calc.getDirection() === 1 ? -2 : 2)));
+      }
+    } else if (event.data === 'read') {
+      setHeading(null);
+      // The engine finishes resetting after it announces "read", so queue after that.
+      requestAnimationFrame(() => drain.current?.());
+    }
   }, []);
-  useImperativeHandle(
-    apiRef,
-    () => ({
-      turnTo(target) {
-        const last = (pdf?.numPages || 1) - 1;
-        const next = Math.min(last, Math.max(0, target));
-        const controller = flip.current?.pageFlip();
-        if (plain || !controller) {
-          callbacks.current.onPageChange(next);
-          return;
-        }
-        if (controller.getState() === 'flipping') return;
-        if (Math.abs(next - controller.getCurrentPageIndex()) > 2)
-          controller.turnToPage(next);
-        else controller.flip(next, 'bottom');
-      },
-      resetView() {
-        resetRequested.current = true;
-        zoomAnchor.current = null;
-        host.current.scrollTo({ left: 0, top: 0 });
-      },
-      prepareZoom() {
-        if (zoomAnchor.current) return;
-        const rect = host.current.getBoundingClientRect();
-        captureZoomAnchor(
-          rect.left + rect.width / 2,
-          rect.top + rect.height / 2,
-        );
-      },
-    }),
-    [pdf, plain, captureZoomAnchor],
-  );
+  function busy() {
+    const state = engine.current?.getState();
+    return state === 'flipping' || state === 'user_fold';
+  }
+  function turnTo(target) {
+    const next = Math.min(count - 1, Math.max(0, target));
+    const controller = engine.current;
+    if (plain || !controller) {
+      callbacks.current.onPageChange(next);
+      return;
+    }
+    if (busy()) {
+      queued.current = { steps: 0, target: next };
+      return;
+    }
+    // One animated leaf carries the reader to any page, near or far.
+    controller.flip(next, 'bottom');
+  }
+  function turnDirection(direction, corner = 'bottom') {
+    const controller = engine.current;
+    if (plain || !controller) {
+      const next = Math.max(0, Math.min(count - 1, currentPage + direction));
+      callbacks.current.onPageChange(next);
+      return;
+    }
+    // Quick taps, keys and clicks during a turn are kept instead of dropped.
+    if (busy()) {
+      const steps = Math.max(-4, Math.min(4, queued.current.steps + direction));
+      queued.current = { steps, target: null };
+      return;
+    }
+    if (direction > 0) controller.flipNext(corner);
+    else controller.flipPrev(corner);
+  }
+  useEffect(() => {
+    drain.current = () => {
+      // A late frame can land after the next turn already began; it will drain then.
+      if (busy()) return;
+      const { steps, target } = queued.current;
+      queued.current = { steps: 0, target: null };
+      if (target !== null) turnTo(target);
+      else if (steps) {
+        turnDirection(Math.sign(steps));
+        // At the first or last page nothing starts, and the rest of the queue is void.
+        if (busy()) queued.current.steps = steps - Math.sign(steps);
+      }
+    };
+  });
+  useImperativeHandle(apiRef, () => ({
+    turnTo,
+    turn(direction) {
+      turnDirection(direction);
+    },
+    resetView() {
+      resetRequested.current = true;
+      zoomAnchor.current = null;
+      host.current.scrollTo({ left: 0, top: 0 });
+    },
+    prepareZoom() {
+      if (zoomAnchor.current) return;
+      const rect = host.current.getBoundingClientRect();
+      captureZoomAnchor(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    },
+  }));
   // The engine keeps these exact child elements throughout a turn. Visible canvases
   // update through context so React never reloads its collection mid-animation.
   const pages = useMemo(
@@ -232,32 +307,79 @@ const FlipBook = forwardRef(function FlipBook(
       y: ((y - rect.top) * block.offsetHeight) / rect.height,
     };
   }
-  function turnDirection(direction, corner = 'bottom') {
-    const controller = engine.current;
-    if (controller?.getState() === 'flipping') return;
-    if (plain || !controller) {
-      const next = Math.max(
-        0,
-        Math.min((pdf?.numPages || 1) - 1, currentPage + direction),
-      );
-      callbacks.current.onPageChange(next);
-    } else if (direction > 0) controller.flipNext(corner);
-    else controller.flipPrev(corner);
-  }
-  function tapPage(x, y) {
-    if (window.getSelection()?.toString()) return;
+  // Which way a tap at this point turns: -1 back, 1 forward.
+  function sideAt(x, y) {
     const rect = host.current
       .querySelector('.book-position')
       ?.getBoundingClientRect();
-    if (!rect) return;
+    if (!rect) return 0;
     const point = bookPoint(x, y);
     const block = engine.current?.getUI().getDistElement();
     const previous = single
       ? x < rect.left + rect.width * 0.4
       : point && point.x < block.offsetWidth / 2;
-    turnDirection(
-      previous ? -1 : 1,
-      y < rect.top + rect.height / 2 ? 'top' : 'bottom',
+    return previous ? -1 : 1;
+  }
+  function tapPage(x, y) {
+    if (window.getSelection()?.toString()) return;
+    const direction = sideAt(x, y);
+    if (!direction) return;
+    const rect = host.current
+      .querySelector('.book-position')
+      .getBoundingClientRect();
+    turnDirection(direction, y < rect.top + rect.height / 2 ? 'top' : 'bottom');
+  }
+  // Show a soft arrow on the side a click would turn toward.
+  function aim(event) {
+    const element = host.current;
+    const direction =
+      zoomRef.current <= 100 &&
+      layout !== 'text' &&
+      event.target.closest('.pdf-sheet')
+        ? sideAt(event.clientX, event.clientY)
+        : 0;
+    const blocked =
+      (direction < 0 && currentPage === 0) ||
+      (direction > 0 && currentPage >= count - (single ? 1 : 2));
+    if (!direction || blocked) delete element.dataset.aim;
+    else element.dataset.aim = direction > 0 ? 'next' : 'prev';
+  }
+  // Start a finger- or mouse-following curl. Mid-page drags fold from the page edge
+  // in the drag's direction, so a swipe always turns the way the reader means.
+  function beginFold(gesture, x) {
+    const controller = engine.current;
+    const flipper = controller?.getFlipController();
+    if (!flipper || !gesture.start) return false;
+    const rect = controller.getRender().getRect();
+    const anchor = gesture.corner
+      ? gesture.start
+      : {
+          x: x < gesture.x ? rect.left + rect.pageWidth * 2 - 10 : 10,
+          y: gesture.start.y,
+        };
+    if (!flipper.start(anchor)) return false;
+    controller.startUserTouch(anchor);
+    flipper.fold(anchor);
+    return true;
+  }
+  // Release a curl: past the spine, or flicked far enough toward it, the page turns.
+  function releaseFold(gesture, x) {
+    const controller = engine.current;
+    const flipper = controller?.getFlipController();
+    controller?.userStop(gesture.start, true);
+    const calc = flipper?.getCalculation();
+    if (!calc) return;
+    const rect = controller.getBoundsRect();
+    const position = calc.getPosition();
+    const travel = (x - gesture.x) * (calc.getDirection() === 1 ? 1 : -1);
+    const turn = position.x <= 0 || travel > Math.min(90, rect.pageWidth * 0.2);
+    flipper.animateFlippingTo(
+      position,
+      {
+        x: turn ? -rect.pageWidth : rect.pageWidth,
+        y: calc.getCorner() === 'bottom' ? rect.height : 0,
+      },
+      turn,
     );
   }
   function pointerDown(event) {
@@ -267,11 +389,10 @@ const FlipBook = forwardRef(function FlipBook(
       layout === 'text'
     )
       return;
-    if (engine.current?.getState() === 'flipping') return;
     const sheet = event.target.closest('.pdf-sheet');
     const rect = sheet?.getBoundingClientRect();
     const corner =
-      rect &&
+      !!rect &&
       Math.min(
         Math.abs(event.clientX - rect.left),
         Math.abs(event.clientX - rect.right),
@@ -281,20 +402,25 @@ const FlipBook = forwardRef(function FlipBook(
         Math.abs(event.clientY - rect.bottom),
       ) < 44;
     const start = bookPoint(event.clientX, event.clientY);
-    const folding =
-      !plain && !!sheet && !!start && (zoomRef.current <= 100 || corner);
     mouse.current = {
       x: event.clientX,
       y: event.clientY,
       left: host.current.scrollLeft,
       top: host.current.scrollTop,
       sheet: !!sheet,
-      folding,
+      // While a page is moving, a press can only be a tap that queues another turn.
+      canFold:
+        !plain &&
+        !busy() &&
+        !!sheet &&
+        !!start &&
+        (zoomRef.current <= 100 || corner),
+      corner,
+      folding: false,
       moved: false,
       start,
     };
     event.currentTarget.setPointerCapture(event.pointerId);
-    if (folding) engine.current?.startUserTouch(mouse.current.start);
     event.preventDefault();
   }
   function pointerMove(event) {
@@ -304,17 +430,19 @@ const FlipBook = forwardRef(function FlipBook(
     if (!gesture) {
       if (point && zoomRef.current <= 100)
         engine.current?.userMove(point, false);
+      aim(event);
       return;
     }
     const distance = Math.hypot(
       event.clientX - gesture.x,
       event.clientY - gesture.y,
     );
-    if (distance <= 6 && !gesture.moved) return;
-    if (gesture.folding && point) {
-      if (!gesture.moved)
-        engine.current?.getFlipController().fold(gesture.start);
-      engine.current?.userMove(point, false);
+    // A small wobble while clicking is still a click, not a fold.
+    if (distance <= 12 && !gesture.moved) return;
+    if (!gesture.moved && gesture.canFold)
+      gesture.folding = beginFold(gesture, event.clientX);
+    if (gesture.folding) {
+      if (point) engine.current?.userMove(point, false);
     } else if (zoomRef.current > 100) {
       host.current.scrollLeft = gesture.left + gesture.x - event.clientX;
       host.current.scrollTop = gesture.top + gesture.y - event.clientY;
@@ -325,12 +453,9 @@ const FlipBook = forwardRef(function FlipBook(
     const gesture = mouse.current;
     if (!gesture || event.pointerType !== 'mouse') return;
     mouse.current = null;
-    if (gesture.folding)
-      engine.current?.userStop(
-        bookPoint(event.clientX, event.clientY) || gesture.start,
-        !gesture.moved,
-      );
-    if (!gesture.moved && gesture.sheet) tapPage(event.clientX, event.clientY);
+    if (gesture.folding) releaseFold(gesture, event.clientX);
+    else if (!gesture.moved && gesture.sheet)
+      tapPage(event.clientX, event.clientY);
     if (event.currentTarget.hasPointerCapture(event.pointerId))
       event.currentTarget.releasePointerCapture(event.pointerId);
   }
@@ -340,6 +465,8 @@ const FlipBook = forwardRef(function FlipBook(
     const points = event.touches;
     if (!points.length) return;
     if (points.length >= 2) {
+      // A second finger turns a curl in progress into a pinch.
+      if (touch.current?.folding) releaseFold(touch.current, touch.current.x);
       const distance = Math.hypot(
         points[0].clientX - points[1].clientX,
         points[0].clientY - points[1].clientY,
@@ -347,14 +474,20 @@ const FlipBook = forwardRef(function FlipBook(
       touch.current = { pinch: true, distance, zoom: zoomRef.current };
       return;
     }
+    const sheet = !!event.target.closest('.pdf-sheet');
+    const start = bookPoint(points[0].clientX, points[0].clientY);
     touch.current = {
       x: points[0].clientX,
       y: points[0].clientY,
       left: host.current.scrollLeft,
       top: host.current.scrollTop,
       zoom: zoomRef.current,
-      sheet: !!event.target.closest('.pdf-sheet'),
+      sheet,
+      canFold: !plain && sheet && !!start && zoomRef.current <= 100 && !busy(),
+      corner: false,
+      folding: false,
       moved: false,
+      start,
     };
   }
   function touchMove(event) {
@@ -380,9 +513,18 @@ const FlipBook = forwardRef(function FlipBook(
     } else if (!gesture.pinch) {
       const point = event.touches[0];
       if (!point) return;
-      if (Math.hypot(point.clientX - gesture.x, point.clientY - gesture.y) > 8)
+      const dx = point.clientX - gesture.x,
+        dy = point.clientY - gesture.y;
+      if (!gesture.moved && Math.hypot(dx, dy) > 8) {
+        // The page follows a sideways finger, like lifting a real leaf.
+        if (gesture.canFold && Math.abs(dx) > Math.abs(dy) * 1.2)
+          gesture.folding = beginFold(gesture, point.clientX);
         gesture.moved = true;
-      if (zoomRef.current > 100) {
+      }
+      if (gesture.folding) {
+        const at = bookPoint(point.clientX, point.clientY);
+        if (at) engine.current?.userMove(at, false);
+      } else if (zoomRef.current > 100) {
         host.current.scrollLeft = gesture.left + gesture.x - point.clientX;
         host.current.scrollTop = gesture.top + gesture.y - point.clientY;
       }
@@ -405,7 +547,8 @@ const FlipBook = forwardRef(function FlipBook(
       const point = event.changedTouches[0],
         dx = point.clientX - gesture.x,
         dy = point.clientY - gesture.y;
-      if (
+      if (gesture.folding) releaseFold(gesture, point.clientX);
+      else if (
         gesture.zoom <= 100 &&
         Math.abs(dx) > 50 &&
         Math.abs(dx) > Math.abs(dy) * 1.4
@@ -428,21 +571,19 @@ const FlipBook = forwardRef(function FlipBook(
       onTouchMoveCapture={touchMove}
       onTouchEndCapture={touchEnd}
       onTouchCancelCapture={() => {
+        if (touch.current?.folding) releaseFold(touch.current, touch.current.x);
         touch.current = null;
       }}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
       onPointerUp={pointerUp}
-      onPointerCancel={(event) => {
+      onPointerCancel={() => {
         const gesture = mouse.current;
-        if (gesture?.folding)
-          engine.current?.userStop(
-            bookPoint(event.clientX, event.clientY) || gesture.start,
-            !gesture.moved,
-          );
+        if (gesture?.folding) releaseFold(gesture, gesture.x);
         mouse.current = null;
       }}
       onPointerLeave={() => {
+        delete host.current.dataset.aim;
         if (!mouse.current && engine.current?.getState() === 'fold_corner')
           engine.current.userMove({ x: -100, y: -100 }, false);
       }}
@@ -466,7 +607,7 @@ const FlipBook = forwardRef(function FlipBook(
         {pdf && size.width > 0 && (
           <RenderContext.Provider value={{ page: currentPage, pixelRatio }}>
             <div
-              className={'book-position' + (single ? ' portrait' : ' spread')}
+              className={`book-position ${single ? 'portrait' : 'spread'} pose-${pose}`}
               style={{
                 width: width * (single ? 1 : 2) * scale,
                 height: height * scale,
@@ -478,6 +619,8 @@ const FlipBook = forwardRef(function FlipBook(
                   width: width * (single ? 1 : 2),
                   height,
                   transform: `scale(${scale})`,
+                  '--edge-left': `${read}px`,
+                  '--edge-right': `${depth - read}px`,
                 }}
               >
                 {plain ? (
@@ -505,8 +648,8 @@ const FlipBook = forwardRef(function FlipBook(
                     usePortrait={single}
                     autoSize
                     drawShadow
-                    maxShadowOpacity={0.48}
-                    flippingTime={850}
+                    maxShadowOpacity={0.6}
+                    flippingTime={700}
                     mobileScrollSupport={false}
                     useMouseEvents={false}
                     showPageCorners
@@ -515,12 +658,14 @@ const FlipBook = forwardRef(function FlipBook(
                     onFlip={syncPage}
                     onChangeState={stateChange}
                     onInit={initialized}
-                    className={`flip-book ${!single && currentPage === 0 ? 'closed-book' : ''}`}
+                    className={`flip-book ${pose === 'front' ? 'closed-book' : ''} ${pose === 'back' ? 'back-cover' : ''}`}
                   >
                     {pages}
                   </HTMLFlipBook>
                 )}
               </div>
+              <span className="turn-hint prev" aria-hidden="true" />
+              <span className="turn-hint next" aria-hidden="true" />
             </div>
           </RenderContext.Provider>
         )}

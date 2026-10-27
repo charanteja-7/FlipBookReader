@@ -126,9 +126,9 @@ export default function ReaderControls({
             Download original PDF
           </button>
           <p>
-            Tap the right page to turn forward, or the left to go back. Drag a
-            corner to curl a page. Pinch or Ctrl + scroll to zoom; drag the page
-            to pan when enlarged.
+            Tap the right page to turn forward, or the left to go back. Drag or
+            swipe a page to lift it by hand. Pinch or Ctrl + scroll to zoom;
+            drag the page to pan when enlarged.
           </p>
           <p>
             ← → turn · B bookmark · F fullscreen · Space hide/show · Esc leave
@@ -195,13 +195,14 @@ export function ZoomControls({ zoom, setZoom }) {
     </div>
   );
 }
-export function PageNavigation({ total, page, go, step, turning }) {
+// Buttons stay live while a page is moving; the reader queues quick repeat presses.
+export function PageNavigation({ total, page, go, turn, ready }) {
   return (
     <nav className="page-navigation reader-orbit" aria-label="Page navigation">
       <button
         title="First page"
         aria-label="First page"
-        disabled={!total || page === 0 || turning}
+        disabled={!total || page === 0 || !ready}
         onClick={() => go(0)}
       >
         <ChevronsLeft size={15} />
@@ -209,8 +210,8 @@ export function PageNavigation({ total, page, go, step, turning }) {
       <button
         title="Previous page"
         aria-label="Previous page"
-        disabled={!total || page === 0 || turning}
-        onClick={() => go(page - step)}
+        disabled={!total || page === 0 || !ready}
+        onClick={() => turn(-1)}
       >
         <ChevronLeft size={19} />
       </button>
@@ -230,22 +231,22 @@ export function PageNavigation({ total, page, go, step, turning }) {
           min="1"
           max={total || 1}
           defaultValue={page + 1}
-          disabled={!total || turning}
+          disabled={!total || !ready}
         />
         <span>/ {total || '...'}</span>
       </form>
       <button
         title="Next page"
         aria-label="Next page"
-        disabled={!total || page >= total - 1 || turning}
-        onClick={() => go(page + (page === 0 ? 1 : step))}
+        disabled={!total || page >= total - 1 || !ready}
+        onClick={() => turn(1)}
       >
         <ChevronRight size={19} />
       </button>
       <button
         title="Last page"
         aria-label="Last page"
-        disabled={!total || page >= total - 1 || turning}
+        disabled={!total || page >= total - 1 || !ready}
         onClick={() => go(total - 1)}
       >
         <ChevronsRight size={15} />
