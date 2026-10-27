@@ -1,6 +1,121 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
+
+test('populated shelves keep long titles readable at mobile, tablet and desktop widths', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('./');
+  const buffer = await readFile(resolve('public/sample.pdf'));
+  const titles = [
+    'A little room to read',
+    'Notes after midnight',
+    'The art of paying attention',
+    'Collected observations',
+    'A field guide to the everyday',
+    'Small wonders',
+    'An extraordinarily long title for a small and very quiet book',
+  ];
+  for (const title of titles) {
+    await page.locator('#book-upload').setInputFiles({
+      name: `${title}.pdf`,
+      mimeType: 'application/pdf',
+      buffer,
+    });
+    await page
+      .getByRole('button', { name: 'Save to library', exact: true })
+      .click();
+    await expect(
+      page.getByRole('link', { name: `Read ${title}`, exact: true }),
+    ).toBeVisible();
+  }
+  for (const width of [390, 768, 1440]) {
+    await page.setViewportSize({ width, height: 900 });
+    expect(
+      await page.evaluate(
+        () => document.documentElement.scrollWidth <= innerWidth,
+      ),
+    ).toBe(true);
+    expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({
+      path: `test-results/midnight-shelves-${width}.png`,
+      fullPage: true,
+    });
+  }
+});
+
+test('archive introduction can be skipped and does not replay on return', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.goto('./');
+  const skip = page.getByRole('button', { name: 'Skip introduction' });
+  await skip.click();
+  await expect(page.locator('.archive-arrival')).toHaveCount(0);
+  await expect(
+    page.getByRole('button', { name: 'Add a PDF', exact: true }),
+  ).toBeVisible();
+  await page.reload();
+  await expect(page.locator('.archive-arrival')).toHaveCount(0);
+});
+
+test('archive bindings, original covers, reading desk and quiet preference persist', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await sample(page);
+  await expect(page.locator('.archive-arrival')).toHaveCount(0);
+  const binding = await page
+    .locator('.book-item .bound-book')
+    .getAttribute('class');
+  await page
+    .getByRole('button', { name: 'Show PDF covers', exact: true })
+    .click();
+  await expect(page.locator('.book-item .binding-original')).toHaveCSS(
+    'opacity',
+    '1',
+  );
+  await page
+    .getByRole('button', { name: 'Show bindings', exact: true })
+    .click();
+  await readExisting(page);
+  await page.getByRole('button', { name: 'Last page', exact: true }).click();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Page number' }),
+  ).toHaveValue('4');
+  await page.getByRole('link', { name: 'Library', exact: true }).click();
+  await expect(page.locator('.reading-desk')).toContainText('Page 4 of 4');
+  await page.getByRole('button', { name: 'Pause magic' }).click();
+  await page.reload();
+  await expect(
+    page.getByRole('button', { name: 'Resume magic' }),
+  ).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.book-item .bound-book')).toHaveAttribute(
+    'class',
+    binding,
+  );
+  await expect(page.locator('.reading-desk')).toContainText('Page 4 of 4');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => sessionStorage.removeItem('flip-archive-entered'));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-magic', 'paused');
+  await expect(page.locator('.archive-arrival')).toHaveCount(0);
+  await page.screenshot({
+    path: 'test-results/midnight-library-desktop.png',
+    fullPage: true,
+  });
+});
+
+async function readExisting(page) {
+  await page
+    .getByRole('link', { name: 'Read A little room to read', exact: true })
+    .click();
+  await expect(page.locator('.react-pdf__Page__canvas').first()).toBeVisible({
+    timeout: 20000,
+  });
+}
 async function sample(page) {
   await page.goto('./');
   await page.getByRole('button', { name: 'Try the sample' }).click();
@@ -116,6 +231,10 @@ for (const width of [320, 390, 768, 1440])
       ),
     ).toBe(true);
     expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
+    await page.screenshot({
+      path: `test-results/midnight-empty-${width}.png`,
+      fullPage: true,
+    });
     await page.getByRole('button', { name: 'Device & privacy' }).click();
     await expect(page.getByRole('dialog')).toBeVisible();
     await page.keyboard.press('Escape');
@@ -156,6 +275,9 @@ test('invalid PDFs, upload, empty search and missing books', async ({
   await expect(page.getByRole('link', { name: 'Read sample' })).toBeVisible({
     timeout: 20000,
   });
+  await expect(
+    page.getByRole('link', { name: 'Find it on your shelf' }),
+  ).toBeFocused();
   await page.getByRole('searchbox', { name: 'Search books' }).fill('absent');
   await expect(
     page.getByRole('heading', { name: 'No matching books' }),

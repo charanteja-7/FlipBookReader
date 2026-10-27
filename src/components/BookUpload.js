@@ -1,5 +1,5 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Plus, Upload, X } from 'lucide-react';
 import { useLibrary } from '@/context/LibraryContext';
 export default function BookUpload() {
@@ -10,8 +10,21 @@ export default function BookUpload() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [dragging, setDragging] = useState(false);
+  const [stage, setStage] = useState(-1);
+  const [added, setAdded] = useState(false);
+  const shelvedLink = useRef(null);
+  useEffect(() => {
+    if (added) shelvedLink.current?.focus({ preventScroll: true });
+  }, [added]);
+  const stages = [
+    'Reading your PDF',
+    'Preparing its cover',
+    'Saving on this device',
+    'Placed on your shelf',
+  ];
   function choose(value) {
     setMessage('');
+    setAdded(false);
     if (!value) return;
     if (
       !/\.pdf$/i.test(value.name) ||
@@ -27,11 +40,15 @@ export default function BookUpload() {
   async function submit(event) {
     event.preventDefault();
     setBusy(true);
+    setStage(0);
     setMessage('');
     try {
-      await addBook(file, genre);
+      await addBook(file, genre, setStage);
       setFile(null);
-      setMessage('Book added. It is saved only on this device.');
+      setAdded(true);
+      setMessage(
+        'Book added. A new place on your shelf, saved only on this device.',
+      );
     } catch (error) {
       setMessage(error.message);
     } finally {
@@ -41,7 +58,12 @@ export default function BookUpload() {
   }
   return (
     <section
-      className={'import-panel' + (dragging ? ' dragging' : '')}
+      className={
+        'import-panel archive-import' +
+        (dragging ? ' dragging' : '') +
+        (file ? ' has-file' : '')
+      }
+      id="add-book"
       aria-labelledby="import-title"
       onDragOver={(e) => {
         e.preventDefault();
@@ -55,12 +77,9 @@ export default function BookUpload() {
       }}
     >
       <div>
-        <h2 id="import-title">Make room for a good read.</h2>
-        <p>
-          Add a PDF to your personal bookshelf.
-          <br />
-          Your books never leave this device.
-        </p>
+        <h2 id="import-title" className="sr-only">
+          Bring a book into the archive
+        </h2>
       </div>
       <input
         ref={input}
@@ -70,7 +89,10 @@ export default function BookUpload() {
         accept=".pdf,application/pdf"
         className="sr-only"
         tabIndex={-1}
-        onChange={(e) => choose(e.target.files[0])}
+        onChange={(e) => {
+          choose(e.target.files[0]);
+          e.target.value = '';
+        }}
       />
       <div className="import-action">
         <button
@@ -78,9 +100,14 @@ export default function BookUpload() {
           disabled={busy}
           onClick={() => input.current.click()}
         >
-          <Plus size={18} aria-hidden="true" /> Add a PDF
+          <Plus size={18} aria-hidden="true" />{' '}
+          {dragging ? 'Release to add your book' : 'Add a PDF'}
         </button>
-        <span>or drop one here / PDF up to 100 MB</span>
+        <span>
+          or drop a book here
+          <br />
+          PDF · up to 100 MB
+        </span>
       </div>
       {file && (
         <form className="import-form" onSubmit={submit}>
@@ -96,6 +123,7 @@ export default function BookUpload() {
               <X size={18} />
             </button>
           </div>
+          <p className="binding-promise">A new story for the shelves.</p>
           <label htmlFor="genre">
             Collection <span>(optional)</span>
           </label>
@@ -109,14 +137,37 @@ export default function BookUpload() {
             autoFocus
           />
           <button className="primary" disabled={busy}>
-            {busy ? 'Checking and saving...' : 'Save to library'}
+            {busy
+              ? stages[stage] || 'Checking and saving...'
+              : 'Save to library'}
           </button>
+          {busy && (
+            <ol className="import-steps" aria-label="Import progress">
+              {stages.map((label, index) => (
+                <li
+                  key={label}
+                  className={index <= stage ? 'step-reached' : ''}
+                  aria-current={index === stage ? 'step' : undefined}
+                >
+                  <span aria-hidden="true">
+                    {index < stage ? '✓' : index + 1}
+                  </span>
+                  {label}
+                </li>
+              ))}
+            </ol>
+          )}
         </form>
       )}
       {message && (
         <p role="status" className="message">
           {message}
         </p>
+      )}
+      {added && (
+        <a className="shelved-link" href="#shelves" ref={shelvedLink}>
+          Find it on your shelf ↓
+        </a>
       )}
     </section>
   );

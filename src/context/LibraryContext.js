@@ -19,6 +19,7 @@ export function LibraryProvider({ children }) {
   const [books, setBooks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [arrivalId, setArrivalId] = useState(null);
   const refreshBooks = useCallback(async () => {
     try {
       setBooks(
@@ -45,11 +46,13 @@ export function LibraryProvider({ children }) {
       previous.map((book) => (book.id === id ? { ...book, ...changes } : book)),
     );
   }, []);
-  async function addBook(file, genre = 'Uncategorized') {
-    const details = await inspectPDF(file);
+  async function addBook(file, genre = 'Uncategorized', onStage = () => {}) {
+    const details = await inspectPDF(file, onStage);
+    const id = crypto.randomUUID();
     try {
+      onStage(2);
       await storeBook({
-        id: crypto.randomUUID(),
+        id,
         title: file.name.replace(/\.pdf$/i, ''),
         fileBlob: file,
         ...details,
@@ -65,6 +68,9 @@ export function LibraryProvider({ children }) {
       );
     }
     await refreshBooks();
+    setArrivalId(id);
+    onStage(3);
+    return id;
   }
   async function removeBook(id) {
     await deleteBook(id);
@@ -86,6 +92,7 @@ export function LibraryProvider({ children }) {
         toggleFavorite,
         refreshBooks,
         updateReadingState,
+        arrivalId,
       }}
     >
       {children}
