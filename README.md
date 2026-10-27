@@ -1,9 +1,15 @@
-# FlipBookReader ? Enchanted edition
+# FlipBookReader - The Midnight Archive
 
 A wizarding reading room for your PDFs. Build a personal bookshelf, turn pages in a responsive flipbook, and return to your reading position without creating an account.
 
+Live: [flip-book-reader.vercel.app](https://flip-book-reader.vercel.app/)
+
+See [The Midnight Archive design notes](docs/MIDNIGHT_ARCHIVE.md) for the concept, implementation, artwork, and validation.
+
 ## Features
 
+- A cinematic midnight library, a brief skippable entrance, and a reading desk that restores your unfinished book.
+- Stable tactile bindings, original PDF cover view, honest local import stages, and a persistent ambient-motion toggle.
 - Add PDFs from your device or drag and drop one; optional collections, title search, favorites, and recent/title sorting.
 - Four-page original sample, added only when you choose **Try the sample**.
 - Physical page curling on desktop and mobile, plus a selectable Text & selection mode.
@@ -19,7 +25,7 @@ No backend, accounts, analytics, paid services, or remote PDF processing.
 
 Screenshots from the production build are in [docs/screenshots](docs/screenshots). The sample is original content, not a third-party book.
 
-![Library](docs/screenshots/library-desktop.jpg)
+![Midnight Archive with sample PDF fixtures](docs/screenshots/midnight-shelves-desktop.png)
 ![Reader on a phone](docs/screenshots/reader-mobile.png)
 
 ## Stack and structure

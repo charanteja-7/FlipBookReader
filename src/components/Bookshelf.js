@@ -3,8 +3,11 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Heart, Trash2, ArrowUpRight, Search, BookOpen } from 'lucide-react';
 import { useLibrary } from '@/context/LibraryContext';
+import BookBinding from './BookBinding';
 export default function Bookshelf() {
-  const { books, loading, error, removeBook, toggleFavorite } = useLibrary();
+  const { books, loading, error, removeBook, toggleFavorite, arrivalId } =
+    useLibrary();
+  const [preview, setPreview] = useState(false);
   const [query, setQuery] = useState('');
   const [collection, setCollection] = useState('All');
   const [favorites, setFavorites] = useState(false);
@@ -36,12 +39,20 @@ export default function Bookshelf() {
     }
   }
   return (
-    <section aria-labelledby="shelf-title" className="shelf">
+    <section
+      aria-labelledby="shelf-title"
+      className="shelf archive-shelf"
+      id="shelves"
+    >
       <div className="section-heading">
         <h2 id="shelf-title">
           Your bookshelf <span>{books.length}</span>
         </h2>
-        <p>Kept close. Pick up anywhere.</p>
+        <p>
+          {books.length
+            ? 'Every volume, a different elsewhere.'
+            : 'A space for the worlds you collect.'}
+        </p>
       </div>
       <div className="filters">
         <label className="search">
@@ -66,6 +77,13 @@ export default function Bookshelf() {
             ))}
           </select>
         </label>
+        <button
+          className="cover-view"
+          aria-pressed={preview}
+          onClick={() => setPreview(!preview)}
+        >
+          {preview ? 'Show bindings' : 'Show PDF covers'}
+        </button>
         <button
           aria-pressed={favorites}
           onClick={() => setFavorites(!favorites)}
@@ -96,7 +114,18 @@ export default function Bookshelf() {
         </p>
       ) : !filtered.length ? (
         <div className="empty-state">
-          <BookOpen size={32} aria-hidden="true" />
+          {!books.length && (
+            <div className="empty-shelf-books" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+              <span />
+            </div>
+          )}
+          {books.length > 0 && <BookOpen size={32} aria-hidden="true" />}
           <h3>
             {books.length
               ? 'No matching books'
@@ -105,12 +134,12 @@ export default function Bookshelf() {
           <p>
             {books.length
               ? 'Try another search or collection.'
-              : 'Add your first PDF above, or explore the short sample below.'}
+              : 'Bring a PDF, or begin with the little book on your reading desk.'}
           </p>
         </div>
       ) : (
         <div className="bookshelf-grid">
-          {filtered.map((book, i) => {
+          {filtered.map((book) => {
             const page = Math.min(
               (book.lastReadPage || 0) + 1,
               book.numPages || Infinity,
@@ -120,27 +149,24 @@ export default function Bookshelf() {
                 ? Math.round((page / book.numPages) * 100)
                 : 0;
             return (
-              <article className="book-item" key={book.id}>
+              <article
+                className={`book-item${arrivalId === book.id ? ' book-arrived' : ''}`}
+                key={book.id}
+              >
                 <Link
                   className="book-link"
                   href={`/read/?id=${encodeURIComponent(book.id)}`}
-                  aria-label={`Read ${book.title}`}
                 >
-                  <div className="book-cover">
-                    {book.coverImage ? (
-                      <img
-                        src={book.coverImage}
-                        alt=""
-                        loading={i < 4 ? 'eager' : 'lazy'}
-                      />
-                    ) : (
-                      <span className="fallback-cover">{book.title}</span>
-                    )}
+                  <div className="book-cover archive-book-cover">
+                    <BookBinding book={book} preview={preview} />
                     <span className="open-book">
                       <ArrowUpRight size={20} />
                     </span>
                   </div>
-                  <h3 title={book.title}>{book.title}</h3>
+                  <h3 title={book.title}>
+                    <span className="sr-only">Read </span>
+                    {book.title}
+                  </h3>
                 </Link>
                 <p className="book-meta">
                   {book.genre || 'Uncategorized'}

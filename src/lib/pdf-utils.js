@@ -11,11 +11,12 @@ export async function getPDFEngine() {
   pdfjs.GlobalWorkerOptions.workerSrc = `${basePath}/pdf.worker.min.mjs`;
   return pdfjs;
 }
-export async function inspectPDF(file) {
+export async function inspectPDF(file, onStage = () => {}) {
   if (!file || !/\.pdf$/i.test(file.name) || !file.size)
     throw new Error('Choose a non-empty PDF file.');
   if (file.size > 100 * 1024 * 1024)
     throw new Error('Choose a PDF smaller than 100 MB.');
+  onStage(0);
   const pdfjs = await getPDFEngine();
   const task = pdfjs.getDocument({
     data: await file.arrayBuffer(),
@@ -23,6 +24,7 @@ export async function inspectPDF(file) {
   });
   try {
     const pdf = await task.promise;
+    onStage(1);
     const page = await pdf.getPage(1);
     const original = page.getViewport({ scale: 1 });
     const viewport = page.getViewport({ scale: 300 / original.width });
