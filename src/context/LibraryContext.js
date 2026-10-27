@@ -40,6 +40,11 @@ export function LibraryProvider({ children }) {
   useEffect(() => {
     refreshBooks();
   }, [refreshBooks]);
+  const updateReadingState = useCallback((id, changes) => {
+    setBooks((previous) =>
+      previous.map((book) => (book.id === id ? { ...book, ...changes } : book)),
+    );
+  }, []);
   async function addBook(file, genre = 'Uncategorized') {
     const details = await inspectPDF(file);
     try {
@@ -80,6 +85,7 @@ export function LibraryProvider({ children }) {
         removeBook,
         toggleFavorite,
         refreshBooks,
+        updateReadingState,
       }}
     >
       {children}

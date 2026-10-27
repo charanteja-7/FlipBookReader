@@ -1,15 +1,15 @@
-# FlipBookReader
+# FlipBookReader ? Enchanted edition
 
-A quiet, private place for your PDFs. Build a personal bookshelf, turn pages in a responsive flipbook, and return to your reading position without creating an account.
+A wizarding reading room for your PDFs. Build a personal bookshelf, turn pages in a responsive flipbook, and return to your reading position without creating an account.
 
 ## Features
 
 - Add PDFs from your device or drag and drop one; optional collections, title search, favorites, and recent/title sorting.
 - Four-page original sample, added only when you choose **Try the sample**.
-- Desktop page flips and a mobile single-page reader with selectable PDF text.
+- Physical page curling on desktop and mobile, plus a selectable Text & selection mode.
 - Previous/next, first/last, direct page entry, progress, and page bookmarks.
-- Automatic/single/spread layout, fit-page sizing, 75/125/150% zoom, light/paper/dark surroundings, fullscreen, and original-PDF download.
-- Arrow keys, Home/End, touch swipes in single-page fit mode, visible keyboard focus, reduced-motion support.
+- Automatic/single/spread/text layouts, fit-page sizing, continuous 10?800% zoom, pinch and Ctrl-wheel zoom, drag panning, enchanted/light/paper/dark surroundings, book-only fullscreen, and original-PDF download.
+- Arrow keys, Home/End, corner drag, touch swipes, visible keyboard focus, reduced-motion support, and pausable candlelight/ambient library animations.
 - Local persistence, reading-data export/import, and explicit clear-data confirmation.
 - Offline shell after a successful first online visit and completed service-worker installation.
 
@@ -24,7 +24,7 @@ Screenshots from the production build are in [docs/screenshots](docs/screenshots
 
 ## Stack and structure
 
-Next.js 16 / React 19, plain CSS, PDF.js via React-PDF, react-pageflip, IndexedDB via idb, Lucide icons, and self-hosted Instrument Sans (SIL Open Font License). Playwright, axe-core, Node's test runner, ESLint, Prettier, and fake-indexeddb are development tools.
+Next.js 16 / React 19, plain CSS, PDF.js via React-PDF, react-pageflip, IndexedDB via idb, Lucide icons, and self-hosted Instrument Sans and Cormorant Garamond (SIL Open Font License). Playwright, axe-core, Node's test runner, ESLint, Prettier, and fake-indexeddb are development tools.
 
 ```text
 src/app/                 Static library and /read/ routes, layout, shared CSS
@@ -135,13 +135,13 @@ Edit scripts/sample.mjs and run node scripts/sample.mjs to replace the bundled s
 
 The shell uses semantic landmarks, labeled controls, live page announcements, a skip link, focus rings, and a native modal dialog with focus return. Navigation works with keyboard and touch; gestures have visible button alternatives. Reduced motion disables travel effects. On narrow screens, even the spread preference uses a single page.
 
-Single-page mode renders the PDF text layer for selection and assistive access. PDF accessibility still depends on the source document's text, tags, and reading order. Scanned PDFs need OCR outside this app. Spread mode prioritizes visual page turning; choose single-page mode for text access. Theme changes the surroundings, not PDF colors.
+Text & selection mode renders the PDF text layer for selection and assistive access. PDF accessibility still depends on the source document's text, tags, and reading order. Scanned PDFs need OCR outside this app. Spread mode prioritizes visual page turning; choose Text & selection for text access. Theme changes the surroundings, not PDF colors.
 
 Target current Chrome, Edge, Firefox, and Safari with IndexedDB, ResizeObserver, modules, and PDF.js support. Chrome was tested on this development machine; mobile viewports and touch events were emulated. Real iOS/Android, Firefox/Safari, and human screen-reader testing remain recommended. Fullscreen availability varies by browser.
 
 ## Performance and limitations
 
-The reader and PDF engine load on demand. Cover previews are 300 pixels wide, device-pixel ratio is capped at 2, and spread mode renders at most seven nearby PDF canvases. All page shells remain lightweight DOM nodes; thousands of pages can still cost memory. PDF loading and cover extraction read the whole file into memory, so the 100 MB cap is a ceiling rather than a device-performance guarantee.
+The reader and PDF engine load on demand. Cover previews are 300 pixels wide, device-pixel ratio is capped at 2.5, and spread mode renders at most seven nearby PDF canvases. All page shells remain lightweight DOM nodes; thousands of pages can still cost memory. PDF loading and cover extraction read the whole file into memory, so the 100 MB cap is a ceiling rather than a device-performance guarantee.
 
 The production service worker pre-caches the shipped shell, reader chunks, worker, fonts, and sample. Offline readiness requires a completed online installation; browsers may evict caches. A new worker activates after old tabs close, avoiding forced reloads while reading.
 
@@ -155,4 +155,6 @@ The original repository did not include a license. This update does not assign a
 
 Future candidates: complete library backup/restore including PDFs, document outlines, opt-in thumbnails, full-text search, stronger huge-document virtualization, and broader real-device/assistive-technology coverage.
 
-See [the implementation and validation report](docs/IMPLEMENTATION.md) for the repository assessment, research links, changed files, commands, results, and remaining launch steps.
+See [the enchanted edition report](docs/ENCHANTED_EDITION.md) for the current theme, reader controls, zoom gestures, and regression tests. Press F for book-only fullscreen, Space/Tab or the screen edge to request controls, Escape to exit, B to bookmark, and 0 to fit.
+
+See [the initial implementation and validation report](docs/IMPLEMENTATION.md) for the repository assessment, research links, changed files, commands, results, and remaining launch steps.

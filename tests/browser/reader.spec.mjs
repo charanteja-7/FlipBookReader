@@ -29,7 +29,10 @@ test('library, reading controls, bookmarks, favorites, refresh and deletion', as
       external.push(r.url());
   });
   await read(page);
-  await page.getByLabel('Layout', { exact: true }).selectOption('single');
+  await page
+    .getByRole('button', { name: 'Reader settings', exact: true })
+    .click();
+  await page.getByLabel('Layout', { exact: true }).selectOption('text');
   await page.getByRole('button', { name: 'Next page', exact: true }).click();
   await expect(
     page.getByRole('spinbutton', { name: 'Page number' }),
@@ -39,7 +42,10 @@ test('library, reading controls, bookmarks, favorites, refresh and deletion', as
     page.getByRole('button', { name: 'Remove page bookmark' }),
   ).toHaveAttribute('aria-pressed', 'true');
   await page.getByLabel('Theme', { exact: true }).selectOption('dark');
-  await page.getByLabel('Zoom', { exact: true }).selectOption('125');
+  await page.getByRole('spinbutton', { name: 'Zoom percentage' }).fill('137');
+  await page
+    .getByRole('spinbutton', { name: 'Zoom percentage' })
+    .press('Enter');
   expect(
     (
       await new AxeBuilder({ page })
@@ -51,8 +57,13 @@ test('library, reading controls, bookmarks, favorites, refresh and deletion', as
   await expect(
     page.getByRole('spinbutton', { name: 'Page number' }),
   ).toHaveValue('2');
+  await page
+    .getByRole('button', { name: 'Reader settings', exact: true })
+    .click();
   await expect(page.getByLabel('Theme', { exact: true })).toHaveValue('dark');
-  await expect(page.getByLabel('Zoom', { exact: true })).toHaveValue('125');
+  await expect(
+    page.getByRole('spinbutton', { name: 'Zoom percentage' }),
+  ).toHaveValue('137');
   await expect(
     page.getByRole('button', { name: 'Remove page bookmark' }),
   ).toHaveAttribute('aria-pressed', 'true');
@@ -271,13 +282,20 @@ test('spread turns, bounded rendering on 120 pages, download, and keyboard focus
     await page.locator('.react-pdf__Page__canvas').count(),
   ).toBeLessThanOrEqual(7);
   const downloadPromise = page.waitForEvent('download');
+  await page
+    .getByRole('button', { name: 'Reader settings', exact: true })
+    .click();
   await page.getByRole('button', { name: 'Download original PDF' }).click();
+  await page.getByRole('button', { name: 'Close reader settings' }).click();
   expect((await downloadPromise).suggestedFilename()).toBe('long.pdf');
   await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
   await expect
     .poll(() => page.evaluate(() => !!document.fullscreenElement))
     .toBe(true);
   await page.keyboard.press('Escape');
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(false);
   await page.getByRole('link', { name: 'Library', exact: true }).click();
   await page.getByRole('button', { name: 'Device & privacy' }).click();
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
@@ -303,4 +321,218 @@ test('storage failure leaves a usable explanatory state', async ({ page }) => {
   await expect(page.getByRole('status')).toContainText(
     'Could not add the sample',
   );
+});
+
+test('continuous zoom, Ctrl-wheel, pan, and saved zoom', async ({ page }) => {
+  await read(page);
+  const zoom = page.getByRole('spinbutton', { name: 'Zoom percentage' });
+  await zoom.fill('283');
+  await zoom.press('Enter');
+  await expect(zoom).toHaveValue('283');
+  const stage = page.locator('.reader-stage');
+  const before = await stage.evaluate((el) => ({
+    width: el.scrollWidth,
+    height: el.scrollHeight,
+  }));
+  expect(before.width).toBeGreaterThan(1400);
+  await page.mouse.move(650, 390);
+  await page.keyboard.down('Control');
+  await page.mouse.wheel(0, -120);
+  await page.keyboard.up('Control');
+  await expect
+    .poll(async () => Number(await zoom.inputValue()))
+    .toBeGreaterThan(283);
+  const percentage = await zoom.inputValue();
+  const initial = await stage.evaluate((el) => el.scrollLeft);
+  await page.mouse.move(650, 390);
+  await page.mouse.down();
+  await page.mouse.move(480, 270, { steps: 8 });
+  await page.mouse.up();
+  expect(await stage.evaluate((el) => el.scrollLeft)).toBeGreaterThan(initial);
+  await page.reload();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Zoom percentage' }),
+  ).toHaveValue(percentage);
+  await page.getByRole('button', { name: 'Fit page', exact: true }).click();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Zoom percentage' }),
+  ).toHaveValue('100');
+});
+test('two-finger pinch and one-finger pan on the physical mobile book', async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await read(page);
+  await expect(page.locator('.flip-book')).toBeVisible();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 2,
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: 115, y: 340, id: 0 },
+      { x: 235, y: 340, id: 1 },
+    ],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [
+      { x: 50, y: 340, id: 0 },
+      { x: 300, y: 340, id: 1 },
+    ],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect
+    .poll(async () =>
+      Number(
+        await page
+          .getByRole('spinbutton', { name: 'Zoom percentage' })
+          .inputValue(),
+      ),
+    )
+    .toBeGreaterThan(180);
+  const stage = page.locator('.reader-stage'),
+    initial = await stage.evaluate((el) => el.scrollTop);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 240, y: 530, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ x: 90, y: 330, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  expect(await stage.evaluate((el) => el.scrollTop)).toBeGreaterThan(initial);
+  await page.getByRole('button', { name: 'Fit page' }).click();
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Page number' }),
+  ).toHaveValue('2');
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  await expect(page.locator('.reader-chrome')).toHaveCSS(
+    'visibility',
+    'hidden',
+  );
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 140, y: 12, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(page.locator('.reader-chrome')).toHaveCSS(
+    'visibility',
+    'visible',
+  );
+  await page.keyboard.press('Escape');
+});
+test('fullscreen opens book-only, uses the screen, and restores controls accessibly', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await read(page);
+  await page.getByRole('button', { name: 'Toggle fullscreen' }).click();
+  await expect(page.locator('.reader')).toHaveClass(/immersive/);
+  await page.mouse.move(650, 400);
+  await expect(page.locator('.reader-chrome')).toHaveCSS(
+    'visibility',
+    'hidden',
+  );
+  await expect(
+    page.getByRole('button', { name: 'Reader settings', exact: true }),
+  ).toBeHidden();
+  const height = await page
+    .locator('.book-position')
+    .evaluate((el) => el.getBoundingClientRect().height);
+  expect(height).toBeGreaterThan(870);
+  await page.screenshot({ path: 'test-results/fullscreen-book-only.png' });
+  await page.locator('.reader-stage').focus();
+  await page.keyboard.press('ArrowRight');
+  await expect(page.locator('#page-number')).toHaveValue('2');
+  await page.keyboard.press('Tab');
+  await expect(page.locator('.reader-chrome')).toHaveCSS(
+    'visibility',
+    'visible',
+  );
+  await page.keyboard.press('Escape');
+  await expect
+    .poll(() => page.evaluate(() => !!document.fullscreenElement))
+    .toBe(false);
+  await expect(
+    page.getByRole('link', { name: 'Library', exact: true }),
+  ).toBeVisible();
+});
+test('actual corner drag bends the page and progress is fresh on browser-back', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await read(page);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Page number' }),
+  ).toHaveValue('2');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  const box = await page.locator('.flip-book').boundingBox();
+  await page.mouse.move(box.x + box.width - 12, box.y + box.height - 12);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.65, {
+    steps: 15,
+  });
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await page.screenshot({ path: 'test-results/page-curl.png' });
+  await page.mouse.move(box.x + box.width * 0.15, box.y + box.height * 0.6, {
+    steps: 10,
+  });
+  await page.mouse.up();
+  await expect(
+    page.getByRole('spinbutton', { name: 'Page number' }),
+  ).toHaveValue('4');
+  await page.goBack();
+  await expect(page.locator('.book-progress span')).toHaveText('Page 4');
+  await expect(
+    page.getByRole('progressbar', { name: 'A little room to read: 100% read' }),
+  ).toHaveAttribute('value', '100');
+  await page.reload();
+  await expect(page.locator('.book-progress span')).toHaveText('Page 4');
+});
+test('magic can be paused and landscape reader keeps controls clear', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: 'Pause magic' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-magic', 'paused');
+  await page.getByRole('button', { name: 'Resume magic' }).click();
+  await page.setViewportSize({ width: 844, height: 390 });
+  await read(page);
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+  const nav = await page.locator('.page-navigation').boundingBox(),
+    zoom = await page.locator('.zoom-dock').boundingBox();
+  expect(nav.x + nav.width).toBeLessThan(zoom.x);
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .exclude('.react-pdf__Page__textContent')
+        .analyze()
+    ).violations,
+  ).toEqual([]);
 });

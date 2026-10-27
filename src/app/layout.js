@@ -3,7 +3,10 @@ import OfflineSupport from '@/components/OfflineSupport';
 import '@fontsource/instrument-sans/latin-400.css';
 import '@fontsource/instrument-sans/latin-500.css';
 import '@fontsource/instrument-sans/latin-600.css';
+import '@fontsource/cormorant-garamond/latin-500.css';
+import '@fontsource/cormorant-garamond/latin-600.css';
 import './globals.css';
+import './enchanted.css';
 export const metadata = {
   title: 'FlipBookReader | A place for your pages',
   description:

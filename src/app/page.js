@@ -1,50 +1,60 @@
-import { BookOpen } from 'lucide-react';
+import { BookOpen, Feather } from 'lucide-react';
 import BookUpload from '@/components/BookUpload';
 import Bookshelf from '@/components/Bookshelf';
 import DataSettings from '@/components/DataSettings';
 import SampleBook from '@/components/SampleBook';
+import EnchantedAtmosphere from '@/components/EnchantedAtmosphere';
+import LibraryScene from '@/components/LibraryScene';
 export default function Home() {
   return (
-    <>
+    <div className="enchanted-library">
       <a className="skip-link" href="#main">
         Skip to library
       </a>
       <header className="site-header">
         <a className="wordmark" href="./">
-          <BookOpen size={25} aria-hidden="true" />
-          FlipBookReader
+          <BookOpen size={26} aria-hidden="true" />
+          <span>
+            FlipBookReader<small>The enchanted edition</small>
+          </span>
         </a>
-        <DataSettings />
+        <div className="header-utilities">
+          <EnchantedAtmosphere />
+          <DataSettings />
+        </div>
       </header>
       <main id="main" className="library-main">
-        <div className="library-intro">
-          <div>
-            <h1>A place for your pages.</h1>
+        <section className="library-intro" aria-labelledby="library-title">
+          <div className="library-welcome">
+            <Feather className="welcome-quill" size={27} aria-hidden="true" />
+            <h1 id="library-title">The enchanted library.</h1>
             <p>
-              Your personal PDF library. Open a book, settle in, pick up where
-              you left off.
+              Some books take you places.
+              <br />
+              These pages know the way.
             </p>
+            <span className="local-note">
+              <span className="local-dot" aria-hidden="true" />
+              Your PDFs. Your device. Your little escape.
+            </span>
           </div>
-          <span className="local-note">
-            <span aria-hidden="true" className="local-dot" />
-            Stored on this device
-          </span>
-        </div>
+          <LibraryScene />
+        </section>
         <BookUpload />
         <Bookshelf />
         <SampleBook />
       </main>
       <footer className="site-footer">
         <span>FlipBookReader</span>
-        <p>Less scrolling. More reading.</p>
+        <p>One more page. A little more magic.</p>
         <a
           href="https://github.com/charanteja-7/FlipBookReader"
           target="_blank"
           rel="noreferrer"
         >
-          View source <span className="sr-only">(opens in a new tab)</span>
+          View source<span className="sr-only"> (opens in a new tab)</span>
         </a>
       </footer>
-    </>
+    </div>
   );
 }

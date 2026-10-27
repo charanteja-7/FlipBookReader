@@ -1,10 +1,13 @@
 'use client';
-import { forwardRef } from 'react';
+import { forwardRef, useContext } from 'react';
 import { Page } from 'react-pdf';
+import { RenderContext } from './RenderContext';
 const PDFPage = forwardRef(function PDFPage(
-  { pageNumber, width, height, active, textLayer = false },
+  { pageNumber, width, height, textLayer = false },
   ref,
 ) {
+  const { page, pixelRatio } = useContext(RenderContext);
+  const active = Math.abs(pageNumber - 1 - page) <= 3;
   return (
     <div
       ref={ref}
@@ -18,10 +21,7 @@ const PDFPage = forwardRef(function PDFPage(
           pageNumber={pageNumber}
           width={width}
           height={height}
-          devicePixelRatio={Math.min(
-            typeof window === 'undefined' ? 1 : window.devicePixelRatio,
-            2,
-          )}
+          devicePixelRatio={pixelRatio}
           renderTextLayer={textLayer}
           renderAnnotationLayer={false}
           loading={

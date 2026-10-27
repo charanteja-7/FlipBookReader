@@ -9,7 +9,7 @@ import {
 } from '../src/lib/preferences.js';
 test('invalid preferences use safe defaults', () => {
   assert.deepEqual(
-    validatePreferences({ theme: '<script>', layout: 'bad', zoom: 500 }),
+    validatePreferences({ theme: '<script>', layout: 'bad', zoom: NaN }),
     defaults,
   );
   assert.deepEqual(validatePreferences(null), defaults);

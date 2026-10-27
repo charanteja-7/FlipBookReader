@@ -1,13 +1,17 @@
-export const defaults = { theme: 'light', layout: 'auto', zoom: 100 };
+import { clampZoom } from './zoom.js';
+export const defaults = { theme: 'wizard', layout: 'auto', zoom: 100 };
 export function validatePreferences(value = {}) {
   return {
-    theme: ['light', 'dark', 'sepia'].includes(value?.theme)
+    theme: ['wizard', 'light', 'dark', 'sepia'].includes(value?.theme)
       ? value.theme
-      : 'light',
-    layout: ['auto', 'single', 'spread'].includes(value?.layout)
+      : 'wizard',
+    layout: ['auto', 'single', 'spread', 'text'].includes(value?.layout)
       ? value.layout
       : 'auto',
-    zoom: [75, 100, 125, 150].includes(value?.zoom) ? value.zoom : 100,
+    zoom:
+      typeof value?.zoom === 'number' && Number.isFinite(value.zoom)
+        ? clampZoom(value.zoom)
+        : 100,
   };
 }
 export function loadPreferences() {

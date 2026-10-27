@@ -1,42 +1,57 @@
 'use client';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { getBook, updateBook, updateBookProgress } from '@/lib/storage';
+import { getBook, updateBook } from '@/lib/storage';
 import { defaults, loadPreferences, savePreferences } from '@/lib/preferences';
-import ReaderControls, { PageNavigation } from './ReaderControls';
+import { clampZoom } from '@/lib/zoom';
+import { useLibrary } from '@/context/LibraryContext';
+import ReaderControls, { PageNavigation, ZoomControls } from './ReaderControls';
 const FlipBook = dynamic(() => import('./FlipBook'), {
   ssr: false,
   loading: () => (
     <p className="reader-loading" role="status">
-      Loading reader...
+      Opening the reading room...
     </p>
   ),
 });
 export default function ReaderPage() {
-  const [book, setBook] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [message, setMessage] = useState('');
-  const [page, setPage] = useState(0);
-  const [total, setTotal] = useState(0);
-  const [preferences, setPreferences] = useState(defaults);
-  const [reducedMotion, setReducedMotion] = useState(false);
-  const [wide, setWide] = useState(false);
-  const step = wide && preferences.layout !== 'single' ? 2 : 1;
-  const root = useRef(null);
-  const totalRef = useRef(0);
-  const writeQueue = useRef(Promise.resolve());
+  const [book, setBook] = useState(null),
+    [loading, setLoading] = useState(true),
+    [message, setMessage] = useState('');
+  const [ready, setReady] = useState(false);
+  const [page, setPage] = useState(0),
+    [total, setTotal] = useState(0),
+    [preferences, setPreferences] = useState(defaults);
+  const [reducedMotion, setReducedMotion] = useState(false),
+    [wide, setWide] = useState(false),
+    [turning, setTurning] = useState(false);
+  const [isFullscreen, setFullscreen] = useState(false),
+    [focused, setFocused] = useState(false),
+    [revealed, setRevealed] = useState(false);
+  const immersive = isFullscreen || focused;
+  const root = useRef(null),
+    reader = useRef(null),
+    totalRef = useRef(0),
+    pageRef = useRef(0),
+    writeQueue = useRef(Promise.resolve()),
+    hideTimer = useRef(null);
+  const router = useRouter();
+  const { updateReadingState } = useLibrary();
+  const bookId = book?.id;
+  const step = wide && !['single', 'text'].includes(preferences.layout) ? 2 : 1;
   useEffect(() => {
     let cancelled = false;
     setPreferences(loadPreferences());
-    const media = matchMedia('(prefers-reduced-motion: reduce)');
-    setReducedMotion(media.matches);
-    const change = () => setReducedMotion(media.matches);
-    media.addEventListener('change', change);
-    const screen = matchMedia('(min-width: 752px)');
+    const motion = matchMedia('(prefers-reduced-motion: reduce)'),
+      screen = matchMedia('(min-width: 744px)');
+    setReducedMotion(motion.matches);
     setWide(screen.matches);
-    const resize = () => setWide(screen.matches);
-    screen.addEventListener('change', resize);
+    const onMotion = () => setReducedMotion(motion.matches),
+      onSize = () => setWide(screen.matches);
+    motion.addEventListener('change', onMotion);
+    screen.addEventListener('change', onSize);
     const id = new URLSearchParams(location.search).get('id');
     (async () => {
       try {
@@ -49,7 +64,8 @@ export default function ReaderPage() {
           return;
         }
         setBook(data);
-        setPage(Math.max(0, data.lastReadPage || 0));
+        pageRef.current = Math.max(0, data.lastReadPage || 0);
+        setPage(pageRef.current);
         setTotal(data.numPages || 0);
         totalRef.current = data.numPages || 0;
       } catch {
@@ -63,44 +79,130 @@ export default function ReaderPage() {
     })();
     return () => {
       cancelled = true;
-      media.removeEventListener('change', change);
-      screen.removeEventListener('change', resize);
+      motion.removeEventListener('change', onMotion);
+      screen.removeEventListener('change', onSize);
+      clearTimeout(hideTimer.current);
     };
   }, []);
-  function persist(callback) {
-    // Serial writes preserve rapid page changes and avoid stale bookmark/progress updates.
-    writeQueue.current = writeQueue.current
-      .then(callback)
-      .catch(() =>
-        setMessage(
-          'Reading data could not be saved. Check your available device storage.',
-        ),
-      );
-  }
-  const go = useCallback(
-    (value) => {
-      const last = totalRef.current - 1;
-      if (last < 0) return;
-      const next = Math.min(last, Math.max(0, value));
-      setPage(next);
-      if (book) persist(() => updateBookProgress(book.id, next));
+  const persist = useCallback(
+    (id, changes) => {
+      updateReadingState(id, changes);
+      writeQueue.current = writeQueue.current
+        .then(() => updateBook(id, changes))
+        .catch(() =>
+          setMessage(
+            'Reading data could not be saved. Check your available device storage.',
+          ),
+        );
     },
-    [book],
+    [updateReadingState],
+  );
+  const commitPage = useCallback(
+    (value) => {
+      const n = Math.max(0, Math.min(totalRef.current - 1, value));
+      if (n < 0) return;
+      pageRef.current = n;
+      setPage(n);
+      if (bookId)
+        persist(bookId, { lastReadPage: n, lastReadDate: new Date() });
+    },
+    [bookId, persist],
   );
   const loaded = useCallback(
     (count) => {
       totalRef.current = count;
       setTotal(count);
-      setPage((current) => Math.min(current, count - 1));
-      if (book)
-        persist(() =>
-          updateBook(book.id, { numPages: count, lastReadDate: new Date() }),
-        );
+      const n = Math.min(pageRef.current, count - 1);
+      pageRef.current = n;
+      setPage(n);
+      if (bookId)
+        persist(bookId, {
+          numPages: count,
+          lastReadPage: n,
+          lastReadDate: new Date(),
+        });
     },
-    [book],
+    [bookId, persist],
   );
+  const go = useCallback((value) => reader.current?.turnTo(value), []);
+  const setZoom = useCallback((value) => {
+    const zoom = clampZoom(value);
+    setPreferences((previous) => {
+      const next = { ...previous, zoom };
+      savePreferences(next);
+      return next;
+    });
+    if (zoom === 100) reader.current?.resetView();
+  }, []);
+  function setPreference(key, value) {
+    const next = { ...preferences, [key]: value };
+    setPreferences(next);
+    if (!savePreferences(next))
+      setMessage('Display preferences could not be saved on this device.');
+  }
+  const toggleBookmark = useCallback(() => {
+    if (!book) return;
+    const marks = book.bookmarks || [];
+    const bookmarks = marks.includes(pageRef.current)
+      ? marks.filter((n) => n !== pageRef.current)
+      : [...marks, pageRef.current].sort((a, b) => a - b);
+    setBook({ ...book, bookmarks });
+    persist(book.id, { bookmarks });
+  }, [book, persist]);
+  function revealChrome() {
+    setRevealed(true);
+    clearTimeout(hideTimer.current);
+    hideTimer.current = setTimeout(() => {
+      if (
+        !root.current
+          ?.querySelector('.reader-chrome')
+          ?.contains(document.activeElement)
+      )
+        setRevealed(false);
+    }, 3500);
+  }
   useEffect(() => {
-    function keydown(event) {
+    const change = () => {
+      const active = document.fullscreenElement === root.current;
+      setFullscreen(active);
+      setFocused(false);
+      setRevealed(false);
+    };
+    document.addEventListener('fullscreenchange', change);
+    return () => document.removeEventListener('fullscreenchange', change);
+  }, []);
+  const fullscreen = useCallback(async () => {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else if (root.current?.requestFullscreen)
+        await root.current.requestFullscreen();
+      else {
+        setFocused(true);
+        setRevealed(false);
+      }
+    } catch {
+      setFocused(true);
+      setRevealed(false);
+    }
+  }, []);
+  useEffect(() => {
+    function key(event) {
+      if (event.key === 'Escape') {
+        setFocused(false);
+        setRevealed(false);
+        if (document.fullscreenElement)
+          document.exitFullscreen().catch(() => {});
+        return;
+      }
+      if (event.key === 'Tab' && immersive && !revealed) {
+        event.preventDefault();
+        setRevealed(true);
+        clearTimeout(hideTimer.current);
+        requestAnimationFrame(() =>
+          root.current?.querySelector('.back-link')?.focus(),
+        );
+        return;
+      }
       if (
         event.ctrlKey ||
         event.metaKey ||
@@ -109,58 +211,84 @@ export default function ReaderPage() {
         event.target.isContentEditable
       )
         return;
+      if (event.key === ' ') {
+        event.preventDefault();
+        if (immersive) setRevealed((v) => !v);
+        else {
+          setFocused(true);
+          setRevealed(false);
+        }
+        return;
+      }
+      if (event.key.toLowerCase() === 'f') {
+        event.preventDefault();
+        fullscreen();
+        return;
+      }
+      if (event.key.toLowerCase() === 'b') {
+        toggleBookmark();
+        return;
+      }
+      if (['+', '='].includes(event.key)) {
+        event.preventDefault();
+        setZoom(preferences.zoom + 10);
+        return;
+      }
+      if (event.key === '-') {
+        event.preventDefault();
+        setZoom(preferences.zoom - 10);
+        return;
+      }
+      if (event.key === '0') {
+        event.preventDefault();
+        setZoom(100);
+        return;
+      }
       if (
         event.target.closest('.reader-stage') &&
         preferences.zoom > 100 &&
         ['ArrowLeft', 'ArrowRight'].includes(event.key)
       )
         return;
-      if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) {
+      if (['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) {
         event.preventDefault();
         go(
           event.key === 'Home'
             ? 0
             : event.key === 'End'
               ? totalRef.current - 1
-              : page +
-                (event.key === 'ArrowRight' ? (page === 0 ? 1 : step) : -step),
+              : pageRef.current +
+                (event.key === 'ArrowRight'
+                  ? pageRef.current === 0
+                    ? 1
+                    : step
+                  : -step),
         );
       }
     }
-    document.addEventListener('keydown', keydown);
-    return () => document.removeEventListener('keydown', keydown);
-  }, [go, page, step, preferences.zoom]);
-  function setPreference(key, value) {
-    const next = { ...preferences, [key]: value };
-    setPreferences(next);
-    if (!savePreferences(next))
-      setMessage('Display preferences could not be saved on this device.');
-  }
-  function toggleBookmark() {
-    const marks = book.bookmarks || [];
-    const bookmarks = marks.includes(page)
-      ? marks.filter((n) => n !== page)
-      : [...marks, page].sort((a, b) => a - b);
-    setBook({ ...book, bookmarks });
-    persist(() => updateBook(book.id, { bookmarks }));
+    document.addEventListener('keydown', key);
+    return () => document.removeEventListener('keydown', key);
+  }, [
+    fullscreen,
+    go,
+    immersive,
+    revealed,
+    preferences.zoom,
+    setZoom,
+    step,
+    toggleBookmark,
+  ]);
+  async function leave() {
+    await writeQueue.current;
+    router.push('/');
   }
   function download() {
-    const url = URL.createObjectURL(book.fileBlob);
-    const a = document.createElement('a');
+    const url = URL.createObjectURL(book.fileBlob),
+      a = document.createElement('a');
     a.href = url;
     a.download = `${book.title}.pdf`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-  }
-  async function fullscreen() {
-    try {
-      if (document.fullscreenElement) await document.exitFullscreen();
-      else if (root.current.requestFullscreen)
-        await root.current.requestFullscreen();
-      else setMessage('Fullscreen is unavailable in this browser.');
-    } catch {
-      setMessage('Fullscreen is unavailable in this browser.');
-    }
   }
   if (loading)
     return (
@@ -176,43 +304,90 @@ export default function ReaderPage() {
         <Link href="/">Return to library</Link>
       </main>
     );
+  const chromeVisible = !immersive || revealed;
   return (
-    <main ref={root} className="reader" data-theme={preferences.theme}>
-      <ReaderControls
-        book={book}
-        preferences={preferences}
-        setPreference={setPreference}
-        bookmark={(book.bookmarks || []).includes(page)}
-        toggleBookmark={toggleBookmark}
-        download={download}
-        fullscreen={fullscreen}
-      />
-      {message && (
-        <p role="status" className="reader-message">
-          {message}
-        </p>
-      )}
+    <main
+      ref={root}
+      className={`reader ${immersive ? 'immersive' : ''}`}
+      data-theme={preferences.theme}
+      data-controls={chromeVisible ? 'visible' : 'hidden'}
+      onTouchStartCapture={(event) => {
+        const touch = event.touches[0];
+        if (
+          immersive &&
+          !revealed &&
+          event.touches.length === 1 &&
+          (touch.clientY < 28 || touch.clientY > innerHeight - 28)
+        ) {
+          event.stopPropagation();
+          revealChrome();
+        }
+      }}
+      onPointerMove={(event) => {
+        if (
+          immersive &&
+          event.pointerType === 'mouse' &&
+          (event.clientY < 32 || event.clientY > innerHeight - 32)
+        )
+          revealChrome();
+      }}
+      onPointerDown={(event) => {
+        if (
+          immersive &&
+          event.pointerType === 'touch' &&
+          event.target === event.currentTarget
+        )
+          revealChrome();
+      }}
+    >
       <FlipBook
+        ref={reader}
         file={book.fileBlob}
         currentPage={page}
-        onPageChange={go}
+        onPageChange={commitPage}
         onLoad={loaded}
         layout={preferences.layout}
         zoom={preferences.zoom}
+        onZoom={setZoom}
         reducedMotion={reducedMotion}
+        immersive={immersive}
+        onTurning={setTurning}
+        onReady={setReady}
       />
-      <div className="reading-footer">
-        <span aria-live="polite" aria-atomic="true">
-          Page {page + 1} of {total || '...'}
-          {total ? ` / ${Math.round(((page + 1) / total) * 100)}%` : ''}
-        </span>
-        <progress
-          max={total || 1}
-          value={page + 1}
-          aria-label="Reading progress"
+      <div
+        className="reader-chrome"
+        inert={!chromeVisible}
+        aria-hidden={!chromeVisible}
+      >
+        <ReaderControls
+          book={book}
+          preferences={preferences}
+          setPreference={setPreference}
+          bookmark={(book.bookmarks || []).includes(page)}
+          toggleBookmark={toggleBookmark}
+          download={download}
+          fullscreen={fullscreen}
+          focus={() => {
+            setFocused((v) => !v);
+            setRevealed(false);
+          }}
+          onLeave={leave}
         />
-        <details>
-          <summary>Bookmarks ({(book.bookmarks || []).length})</summary>
+        <ZoomControls zoom={preferences.zoom} setZoom={setZoom} />
+        <div className="reading-footer reader-orbit">
+          <span aria-hidden="true">
+            {total ? Math.round(((page + 1) / total) * 100) : 0}%
+          </span>
+          <progress
+            max={total || 1}
+            value={page + 1}
+            aria-label="Reading progress"
+          />
+        </div>
+        <details className="bookmarks-dock reader-orbit">
+          <summary>
+            Bookmarks <span>{(book.bookmarks || []).length}</span>
+          </summary>
           <div className="bookmark-list">
             {book.bookmarks?.length ? (
               book.bookmarks.map((n) => (
@@ -221,16 +396,32 @@ export default function ReaderPage() {
                 </button>
               ))
             ) : (
-              <p>Bookmark a page using the bookmark button above.</p>
+              <p>Press B or use the bookmark button to keep a page.</p>
             )}
           </div>
         </details>
+        <PageNavigation
+          total={total}
+          page={page}
+          go={go}
+          step={step}
+          turning={turning || !ready}
+        />
       </div>
-      <PageNavigation page={page} total={total} go={go} step={step} />
-      <p className="reader-tip">
-        Single-page mode supports text selection. On small screens, swipe left
-        or right to turn a page.
-      </p>
+      {immersive && (
+        <p className="sr-only" role="status">
+          Book-only view. Tap the screen edge, or use Space or Tab, to reveal
+          controls. Escape exits focus.
+        </p>
+      )}
+      <span className="sr-only" aria-live="polite" aria-atomic="true">
+        Page {page + 1} of {total || '...'}
+      </span>
+      {message && (
+        <p className="reader-message" role="status">
+          {message}
+        </p>
+      )}
     </main>
   );
 }
