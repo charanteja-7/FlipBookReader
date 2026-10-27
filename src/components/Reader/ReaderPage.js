@@ -125,14 +125,15 @@ export default function ReaderPage() {
     [bookId, persist],
   );
   const go = useCallback((value) => reader.current?.turnTo(value), []);
-  const setZoom = useCallback((value) => {
+  const setZoom = useCallback((value, fit = false) => {
     const zoom = clampZoom(value);
+    if (fit) reader.current?.resetView();
+    else reader.current?.prepareZoom();
     setPreferences((previous) => {
       const next = { ...previous, zoom };
       savePreferences(next);
       return next;
     });
-    if (zoom === 100) reader.current?.resetView();
   }, []);
   function setPreference(key, value) {
     const next = { ...preferences, [key]: value };
@@ -241,7 +242,7 @@ export default function ReaderPage() {
       }
       if (event.key === '0') {
         event.preventDefault();
-        setZoom(100);
+        setZoom(100, true);
         return;
       }
       if (

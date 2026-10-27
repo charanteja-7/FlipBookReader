@@ -7,6 +7,7 @@ import {
   useCallback,
   useMemo,
   useImperativeHandle,
+  useLayoutEffect,
 } from 'react';
 import HTMLFlipBook from 'react-pageflip';
 import { Document, pdfjs } from 'react-pdf';
@@ -35,7 +36,9 @@ const FlipBook = forwardRef(function FlipBook(
   const host = useRef(null);
   const flip = useRef(null);
   const touch = useRef(null);
-  const pan = useRef(null);
+  const mouse = useRef(null);
+  const zoomAnchor = useRef(null);
+  const resetRequested = useRef(false);
   const engine = useRef(null);
   const zoomRef = useRef(zoom);
   const callbacks = useRef({ onZoom, onPageChange, onTurning, onReady });
@@ -82,27 +85,48 @@ const FlipBook = forwardRef(function FlipBook(
     );
     return () => clearTimeout(timer);
   }, [zoom]);
-  const requestZoom = useCallback((next, x, y) => {
+  const captureZoomAnchor = useCallback((x, y) => {
     const position = host.current?.querySelector('.book-position');
-    const before = position?.getBoundingClientRect();
-    const previousScale = zoomRef.current / 100;
-    zoomRef.current = next;
-    callbacks.current.onZoom(next);
-    if (before)
-      requestAnimationFrame(() =>
-        requestAnimationFrame(() => {
-          const after = position.getBoundingClientRect();
-          host.current?.scrollBy({
-            left:
-              after.left +
-              ((x - before.left) / previousScale) * (next / 100) -
-              x,
-            top:
-              after.top + ((y - before.top) / previousScale) * (next / 100) - y,
-          });
-        }),
-      );
+    const surface = host.current?.querySelector('.book-surface');
+    if (!position || !surface) return;
+    const before = position.getBoundingClientRect();
+    const actualScale =
+      surface.getBoundingClientRect().width / surface.offsetWidth;
+    zoomAnchor.current = {
+      x,
+      y,
+      contentX: (x - before.left) / actualScale,
+      contentY: (y - before.top) / actualScale,
+    };
   }, []);
+  const requestZoom = useCallback(
+    (next, x, y) => {
+      if (next === zoomRef.current) return;
+      captureZoomAnchor(x, y);
+      zoomRef.current = next;
+      callbacks.current.onZoom(next);
+    },
+    [captureZoomAnchor],
+  );
+  useLayoutEffect(() => {
+    zoomRef.current = zoom;
+    if (resetRequested.current && zoom === 100) {
+      host.current?.scrollTo({ left: 0, top: 0 });
+      resetRequested.current = false;
+      zoomAnchor.current = null;
+      return;
+    }
+    resetRequested.current = false;
+    const anchor = zoomAnchor.current;
+    const position = host.current?.querySelector('.book-position');
+    if (anchor && position) {
+      const after = position.getBoundingClientRect();
+      host.current.scrollLeft +=
+        after.left + anchor.contentX * scale - anchor.x;
+      host.current.scrollTop += after.top + anchor.contentY * scale - anchor.y;
+      zoomAnchor.current = null;
+    }
+  }, [zoom, scale]);
   useEffect(() => {
     if (plain && pdf && size.width > 0) callbacks.current.onReady?.(true);
   }, [plain, pdf, size.width]);
@@ -160,10 +184,20 @@ const FlipBook = forwardRef(function FlipBook(
         else controller.flip(next, 'bottom');
       },
       resetView() {
+        resetRequested.current = true;
+        zoomAnchor.current = null;
         host.current.scrollTo({ left: 0, top: 0 });
       },
+      prepareZoom() {
+        if (zoomAnchor.current) return;
+        const rect = host.current.getBoundingClientRect();
+        captureZoomAnchor(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        );
+      },
     }),
-    [pdf, plain],
+    [pdf, plain, captureZoomAnchor],
   );
   // The engine keeps these exact child elements throughout a turn. Visible canvases
   // update through context so React never reloads its collection mid-animation.
@@ -186,10 +220,126 @@ const FlipBook = forwardRef(function FlipBook(
     const current = engine.current?.getCurrentPageIndex();
     if (typeof current === 'number') callbacks.current.onPageChange(current);
   }, []);
+  // PageFlip works in layout pixels. Browser pointer coordinates include our CSS
+  // zoom, so both the offset and the distance must be converted before a fold.
+  function bookPoint(x, y) {
+    const block = engine.current?.getUI().getDistElement();
+    if (!block?.isConnected) return null;
+    const rect = block.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    return {
+      x: ((x - rect.left) * block.offsetWidth) / rect.width,
+      y: ((y - rect.top) * block.offsetHeight) / rect.height,
+    };
+  }
+  function turnDirection(direction, corner = 'bottom') {
+    const controller = engine.current;
+    if (controller?.getState() === 'flipping') return;
+    if (plain || !controller) {
+      const next = Math.max(
+        0,
+        Math.min((pdf?.numPages || 1) - 1, currentPage + direction),
+      );
+      callbacks.current.onPageChange(next);
+    } else if (direction > 0) controller.flipNext(corner);
+    else controller.flipPrev(corner);
+  }
+  function tapPage(x, y) {
+    if (window.getSelection()?.toString()) return;
+    const rect = host.current
+      .querySelector('.book-position')
+      ?.getBoundingClientRect();
+    if (!rect) return;
+    const point = bookPoint(x, y);
+    const block = engine.current?.getUI().getDistElement();
+    const previous = single
+      ? x < rect.left + rect.width * 0.4
+      : point && point.x < block.offsetWidth / 2;
+    turnDirection(
+      previous ? -1 : 1,
+      y < rect.top + rect.height / 2 ? 'top' : 'bottom',
+    );
+  }
+  function pointerDown(event) {
+    if (
+      event.pointerType !== 'mouse' ||
+      event.button !== 0 ||
+      layout === 'text'
+    )
+      return;
+    if (engine.current?.getState() === 'flipping') return;
+    const sheet = event.target.closest('.pdf-sheet');
+    const rect = sheet?.getBoundingClientRect();
+    const corner =
+      rect &&
+      Math.min(
+        Math.abs(event.clientX - rect.left),
+        Math.abs(event.clientX - rect.right),
+      ) < 32 &&
+      Math.min(
+        Math.abs(event.clientY - rect.top),
+        Math.abs(event.clientY - rect.bottom),
+      ) < 44;
+    const start = bookPoint(event.clientX, event.clientY);
+    const folding =
+      !plain && !!sheet && !!start && (zoomRef.current <= 100 || corner);
+    mouse.current = {
+      x: event.clientX,
+      y: event.clientY,
+      left: host.current.scrollLeft,
+      top: host.current.scrollTop,
+      sheet: !!sheet,
+      folding,
+      moved: false,
+      start,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+    if (folding) engine.current?.startUserTouch(mouse.current.start);
+    event.preventDefault();
+  }
+  function pointerMove(event) {
+    if (event.pointerType !== 'mouse' || layout === 'text') return;
+    const gesture = mouse.current;
+    const point = bookPoint(event.clientX, event.clientY);
+    if (!gesture) {
+      if (point && zoomRef.current <= 100)
+        engine.current?.userMove(point, false);
+      return;
+    }
+    const distance = Math.hypot(
+      event.clientX - gesture.x,
+      event.clientY - gesture.y,
+    );
+    if (distance <= 6 && !gesture.moved) return;
+    if (gesture.folding && point) {
+      if (!gesture.moved)
+        engine.current?.getFlipController().fold(gesture.start);
+      engine.current?.userMove(point, false);
+    } else if (zoomRef.current > 100) {
+      host.current.scrollLeft = gesture.left + gesture.x - event.clientX;
+      host.current.scrollTop = gesture.top + gesture.y - event.clientY;
+    }
+    gesture.moved = true;
+  }
+  function pointerUp(event) {
+    const gesture = mouse.current;
+    if (!gesture || event.pointerType !== 'mouse') return;
+    mouse.current = null;
+    if (gesture.folding)
+      engine.current?.userStop(
+        bookPoint(event.clientX, event.clientY) || gesture.start,
+        !gesture.moved,
+      );
+    if (!gesture.moved && gesture.sheet) tapPage(event.clientX, event.clientY);
+    if (event.currentTarget.hasPointerCapture(event.pointerId))
+      event.currentTarget.releasePointerCapture(event.pointerId);
+  }
   function touchStart(event) {
+    if (layout === 'text') return;
     event.stopPropagation();
     const points = event.touches;
-    if (points.length === 2) {
+    if (!points.length) return;
+    if (points.length >= 2) {
       const distance = Math.hypot(
         points[0].clientX - points[1].clientX,
         points[0].clientY - points[1].clientY,
@@ -203,13 +353,16 @@ const FlipBook = forwardRef(function FlipBook(
       left: host.current.scrollLeft,
       top: host.current.scrollTop,
       zoom: zoomRef.current,
+      sheet: !!event.target.closest('.pdf-sheet'),
+      moved: false,
     };
   }
   function touchMove(event) {
+    if (layout === 'text') return;
     event.stopPropagation();
     const gesture = touch.current;
     if (!gesture) return;
-    if (event.touches.length === 2) {
+    if (event.touches.length >= 2) {
       if (!gesture.pinch) {
         touchStart(event);
         return;
@@ -224,13 +377,19 @@ const FlipBook = forwardRef(function FlipBook(
         (a.clientX + b.clientX) / 2,
         (a.clientY + b.clientY) / 2,
       );
-    } else if (!gesture.pinch && zoomRef.current > 100) {
+    } else if (!gesture.pinch) {
       const point = event.touches[0];
-      host.current.scrollLeft = gesture.left + gesture.x - point.clientX;
-      host.current.scrollTop = gesture.top + gesture.y - point.clientY;
+      if (!point) return;
+      if (Math.hypot(point.clientX - gesture.x, point.clientY - gesture.y) > 8)
+        gesture.moved = true;
+      if (zoomRef.current > 100) {
+        host.current.scrollLeft = gesture.left + gesture.x - point.clientX;
+        host.current.scrollTop = gesture.top + gesture.y - point.clientY;
+      }
     }
   }
   function touchEnd(event) {
+    if (layout === 'text') return;
     event.stopPropagation();
     const gesture = touch.current;
     if (!gesture) return;
@@ -240,18 +399,20 @@ const FlipBook = forwardRef(function FlipBook(
     }
     if (
       !event.touches.length &&
-      gesture.zoom <= 100 &&
+      event.changedTouches.length &&
       !window.getSelection()?.toString()
     ) {
       const point = event.changedTouches[0],
         dx = point.clientX - gesture.x,
         dy = point.clientY - gesture.y;
-      if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy) * 1.4) {
-        const target =
-          currentPage +
-          (dx < 0 ? (single || currentPage === 0 ? 1 : 2) : single ? -1 : -2);
-        apiRef.current?.turnTo(target);
-      }
+      if (
+        gesture.zoom <= 100 &&
+        Math.abs(dx) > 50 &&
+        Math.abs(dx) > Math.abs(dy) * 1.4
+      )
+        turnDirection(dx < 0 ? 1 : -1);
+      else if (!gesture.moved && Math.hypot(dx, dy) <= 8 && gesture.sheet)
+        tapPage(point.clientX, point.clientY);
     }
     touch.current = null;
   }
@@ -269,40 +430,21 @@ const FlipBook = forwardRef(function FlipBook(
       onTouchCancelCapture={() => {
         touch.current = null;
       }}
-      onPointerDown={(event) => {
-        if (
-          event.pointerType !== 'mouse' ||
-          zoom <= 100 ||
-          event.button !== 0 ||
-          layout === 'text'
-        )
-          return;
-        pan.current = {
-          x: event.clientX,
-          y: event.clientY,
-          left: host.current.scrollLeft,
-          top: host.current.scrollTop,
-        };
-        event.currentTarget.setPointerCapture(event.pointerId);
-        event.preventDefault();
+      onPointerDown={pointerDown}
+      onPointerMove={pointerMove}
+      onPointerUp={pointerUp}
+      onPointerCancel={(event) => {
+        const gesture = mouse.current;
+        if (gesture?.folding)
+          engine.current?.userStop(
+            bookPoint(event.clientX, event.clientY) || gesture.start,
+            !gesture.moved,
+          );
+        mouse.current = null;
       }}
-      onPointerMove={(event) => {
-        if (!pan.current) return;
-        host.current.scrollLeft =
-          pan.current.left + pan.current.x - event.clientX;
-        host.current.scrollTop =
-          pan.current.top + pan.current.y - event.clientY;
-      }}
-      onPointerUp={() => {
-        pan.current = null;
-      }}
-      onPointerCancel={() => {
-        pan.current = null;
-      }}
-      onDoubleClick={(event) => {
-        if (layout === 'text') return;
-        event.preventDefault();
-        onZoom(zoom === 100 ? 200 : 100);
+      onPointerLeave={() => {
+        if (!mouse.current && engine.current?.getState() === 'fold_corner')
+          engine.current.userMove({ x: -100, y: -100 }, false);
       }}
     >
       <Document
@@ -366,7 +508,7 @@ const FlipBook = forwardRef(function FlipBook(
                     maxShadowOpacity={0.48}
                     flippingTime={850}
                     mobileScrollSupport={false}
-                    useMouseEvents
+                    useMouseEvents={false}
                     showPageCorners
                     disableFlipByClick={false}
                     swipeDistance={40}

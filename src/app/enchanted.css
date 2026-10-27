@@ -497,9 +497,6 @@ button.danger:hover {
 .reader .zoomed:active {
   cursor: grabbing;
 }
-.zoomed:not(.text-mode) .flip-book {
-  pointer-events: none;
-}
 .text-mode {
   touch-action: pan-x pan-y pinch-zoom;
 }
