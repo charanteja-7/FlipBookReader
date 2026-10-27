@@ -16,6 +16,7 @@ function Arrival() {
   useEffect(() => {
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     try {
+      if (localStorage.getItem('flip-magic-paused') === 'yes') return;
       if (sessionStorage.getItem('flip-archive-entered')) return;
       sessionStorage.setItem('flip-archive-entered', 'yes');
     } catch {

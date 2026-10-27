@@ -97,6 +97,11 @@ test('archive bindings, original covers, reading desk and quiet preference persi
     binding,
   );
   await expect(page.locator('.reading-desk')).toContainText('Page 4 of 4');
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await page.evaluate(() => sessionStorage.removeItem('flip-archive-entered'));
+  await page.reload();
+  await expect(page.locator('html')).toHaveAttribute('data-magic', 'paused');
+  await expect(page.locator('.archive-arrival')).toHaveCount(0);
   await page.screenshot({
     path: 'test-results/midnight-library-desktop.png',
     fullPage: true,
