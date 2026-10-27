@@ -2,7 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Plus, Upload, X } from 'lucide-react';
 import { useLibrary } from '@/context/LibraryContext';
-export default function BookUpload() {
+// `before` and `after` sit beside the Add button; `quiet` lets another action lead.
+export default function BookUpload({ before, after, quiet = false }) {
   const { addBook } = useLibrary();
   const input = useRef(null);
   const [file, setFile] = useState(null);
@@ -95,14 +96,16 @@ export default function BookUpload() {
         }}
       />
       <div className="import-action">
+        {before}
         <button
-          className="primary"
+          className={quiet ? 'secondary' : 'primary'}
           disabled={busy}
           onClick={() => input.current.click()}
         >
           <Plus size={18} aria-hidden="true" />{' '}
           {dragging ? 'Release to add your book' : 'Add a PDF'}
         </button>
+        {after}
         <span>
           or drop a book here
           <br />

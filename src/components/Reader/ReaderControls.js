@@ -14,6 +14,8 @@ import {
   Minus,
   Plus,
   EyeOff,
+  Highlighter,
+  NotebookPen,
 } from 'lucide-react';
 import Link from 'next/link';
 export default function ReaderControls({
@@ -26,6 +28,11 @@ export default function ReaderControls({
   fullscreen,
   focus,
   onLeave,
+  marking,
+  toggleMarking,
+  notesCount,
+  notesOpen,
+  toggleNotes,
 }) {
   const [settings, setSettings] = useState(false);
   return (
@@ -55,6 +62,24 @@ export default function ReaderControls({
           onClick={toggleBookmark}
         >
           <Bookmark size={17} fill={bookmark ? 'currentColor' : 'none'} />
+        </button>
+        <button
+          title="Highlight text (H)"
+          aria-label="Highlighter"
+          aria-pressed={marking}
+          onClick={toggleMarking}
+        >
+          <Highlighter size={17} />
+        </button>
+        <button
+          className="notes-toggle"
+          title="Highlights and notes"
+          aria-expanded={notesOpen}
+          onClick={toggleNotes}
+        >
+          <NotebookPen size={17} aria-hidden="true" />
+          <span className="sr-only">Highlights and notes</span>
+          {notesCount > 0 && <span className="notes-count">{notesCount}</span>}
         </button>
         <button
           title="Reader settings"
@@ -131,8 +156,8 @@ export default function ReaderControls({
             drag the page to pan when enlarged.
           </p>
           <p>
-            ← → turn · B bookmark · F fullscreen · Space hide/show · Esc leave
-            focus
+            ← → turn · H highlight · B bookmark · F fullscreen · Space hide/show
+            · Esc leave focus
           </p>
         </section>
       )}

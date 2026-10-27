@@ -4,7 +4,7 @@ import { ArrowUpRight } from 'lucide-react';
 import { useLibrary } from '@/context/LibraryContext';
 import { basePath } from '@/lib/pdf-utils';
 import BookBinding from './BookBinding';
-export default function SampleBook({ compact = false }) {
+function useSample() {
   const { addBook } = useLibrary();
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -26,6 +26,26 @@ export default function SampleBook({ compact = false }) {
       setBusy(false);
     }
   }
+  return { busy, message, addSample };
+}
+// The first step for someone who arrives without a PDF at hand.
+export function SampleButton() {
+  const { busy, message, addSample } = useSample();
+  return (
+    <>
+      <button className="secondary" onClick={addSample} disabled={busy}>
+        {busy ? 'Adding sample...' : 'Try the sample'}
+      </button>
+      {message && (
+        <p className="sample-status" role="status">
+          {message}
+        </p>
+      )}
+    </>
+  );
+}
+export default function SampleBook({ compact = false, action = true }) {
+  const { busy, message, addSample } = useSample();
   return (
     <section
       className={`sample-section${compact ? ' compact-sample' : ''}`}
@@ -51,10 +71,12 @@ export default function SampleBook({ compact = false }) {
         <p>Four quiet pages. An original field guide to slower reading.</p>
         {message && <p role="status">{message}</p>}
       </div>
-      <button onClick={addSample} disabled={busy}>
-        {busy ? 'Adding sample...' : 'Try the sample'}
-        <ArrowUpRight size={18} aria-hidden="true" />
-      </button>
+      {action && (
+        <button onClick={addSample} disabled={busy}>
+          {busy ? 'Adding sample...' : 'Try the sample'}
+          <ArrowUpRight size={18} aria-hidden="true" />
+        </button>
+      )}
     </section>
   );
 }

@@ -1,17 +1,64 @@
 import { openDB } from 'idb';
-// Keep the original database name and schema so existing books survive the upgrade.
+// Keep the original database name and books store so existing libraries survive
+// upgrades. Version 2 adds highlights and notes, indexed by book.
 export const initDB = () =>
-  openDB('book-reader-db', 1, {
+  openDB('book-reader-db', 2, {
     upgrade(db) {
       if (!db.objectStoreNames.contains('books'))
         db.createObjectStore('books', { keyPath: 'id' });
+      if (!db.objectStoreNames.contains('annotations'))
+        db.createObjectStore('annotations', { keyPath: 'id' }).createIndex(
+          'bookId',
+          'bookId',
+        );
     },
   });
 export const addBook = async (book) => (await initDB()).put('books', book);
 export const getAllBooks = async () => (await initDB()).getAll('books');
 export const getBook = async (id) => (await initDB()).get('books', id);
-export const deleteBook = async (id) => (await initDB()).delete('books', id);
-export const clearBooks = async () => (await initDB()).clear('books');
+export async function deleteBook(id) {
+  const tx = (await initDB()).transaction(
+    ['books', 'annotations'],
+    'readwrite',
+  );
+  const notes = tx.objectStore('annotations');
+  for (const key of await notes.index('bookId').getAllKeys(id))
+    await notes.delete(key);
+  await tx.objectStore('books').delete(id);
+  await tx.done;
+}
+export async function clearBooks() {
+  const tx = (await initDB()).transaction(
+    ['books', 'annotations'],
+    'readwrite',
+  );
+  await tx.objectStore('annotations').clear();
+  await tx.objectStore('books').clear();
+  await tx.done;
+}
+export const getAnnotations = async (bookId) =>
+  (await initDB()).getAllFromIndex('annotations', 'bookId', bookId);
+export const getAllAnnotations = async () =>
+  (await initDB()).getAll('annotations');
+export const saveAnnotation = async (annotation) =>
+  (await initDB()).put('annotations', annotation);
+export const deleteAnnotation = async (id) =>
+  (await initDB()).delete('annotations', id);
+export async function importAnnotations(annotations) {
+  const tx = (await initDB()).transaction(
+    ['books', 'annotations'],
+    'readwrite',
+  );
+  let count = 0;
+  for (const annotation of annotations) {
+    const book = await tx.objectStore('books').get(annotation.bookId);
+    if (!book || annotation.page >= (book.numPages || Infinity)) continue;
+    await tx.objectStore('annotations').put(annotation);
+    count++;
+  }
+  await tx.done;
+  return count;
+}
 export async function updateBook(id, updates) {
   const tx = (await initDB()).transaction('books', 'readwrite');
   const book = await tx.store.get(id);

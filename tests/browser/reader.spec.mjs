@@ -910,3 +910,102 @@ test('mid-page drags turn a long book without rebuilding it, and quick taps queu
   expect(await page.locator('.stf__block').count()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test('highlights and notes persist, edit in place, export and join the backup', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('./');
+  await expect(
+    page.getByRole('button', { name: 'Try the sample', exact: true }),
+  ).toBeVisible();
+  await read(page);
+  await page.getByRole('button', { name: 'Highlighter' }).click();
+  await expect(page.locator('.reader-stage')).toHaveClass(/selecting/);
+  const words = page
+    .locator('.pdf-sheet .textLayer span')
+    .filter({ hasText: 'A field guide to slower reading' })
+    .first();
+  await expect(words).toBeVisible();
+  const box = await words.boundingBox();
+  await page.mouse.move(box.x + 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width - 2, box.y + box.height / 2, {
+    steps: 8,
+  });
+  await page.mouse.up();
+  await page.getByRole('button', { name: 'Yellow highlight' }).click();
+  await expect(page.locator('.mark-yellow')).toHaveCount(1);
+  await expect(page.locator('#page-number')).toHaveValue('1');
+  // The highlight must reach device storage, not only the screen.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise((done) => {
+            const open = indexedDB.open('book-reader-db');
+            open.onsuccess = () => {
+              const all = open.result
+                .transaction('annotations')
+                .objectStore('annotations')
+                .getAll();
+              all.onsuccess = () => {
+                done(all.result.length);
+                open.result.close();
+              };
+            };
+          }),
+      ),
+    )
+    .toBe(1);
+  await page.reload();
+  const mark = page.locator('.mark-yellow');
+  await expect(mark).toHaveCount(1);
+  const at = await mark.boundingBox();
+  await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2);
+  await expect(
+    page.getByRole('dialog', { name: 'Edit highlight' }),
+  ).toBeVisible();
+  await expect(page.locator('#page-number')).toHaveValue('1');
+  await page.getByRole('button', { name: 'Add note' }).click();
+  await page.getByRole('textbox', { name: 'Note' }).fill('Start here.');
+  await page.getByRole('button', { name: 'Done' }).click();
+  await expect(page.locator('.mark.has-note')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Highlights and notes' }).click();
+  await page
+    .getByRole('textbox', { name: 'Note on page 1' })
+    .fill('A page to return to.');
+  await page.getByRole('button', { name: 'Add note', exact: true }).click();
+  await expect(page.locator('.note-item')).toHaveCount(2);
+  await expect(page.locator('.page-note-pin')).toHaveCount(1);
+  await expect(page.locator('.notes-panel')).toContainText('Start here.');
+  const markdown = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export as Markdown' }).click();
+  expect((await markdown).suggestedFilename()).toBe(
+    'A little room to read - notes.md',
+  );
+  expect(
+    (
+      await new AxeBuilder({ page })
+        .exclude('.react-pdf__Page__textContent')
+        .analyze()
+    ).violations,
+  ).toEqual([]);
+  await page.getByRole('link', { name: 'Library', exact: true }).click();
+  await expect(
+    page.getByRole('link', {
+      name: /^Continue reading A little room to read · page/,
+    }),
+  ).toBeVisible();
+  await page.getByRole('button', { name: 'Device & privacy' }).click();
+  const backup = page.waitForEvent('download');
+  await page.getByRole('button', { name: 'Export data' }).click();
+  const data = JSON.parse(await readFile(await (await backup).path(), 'utf8'));
+  expect(data.annotations.map((a) => a.kind).sort()).toEqual([
+    'highlight',
+    'note',
+  ]);
+  expect(errors).toEqual([]);
+});
