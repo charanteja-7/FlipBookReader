@@ -23,7 +23,7 @@ function Arrival() {
       /* The opening is optional when storage is restricted. */
     }
     setVisible(true);
-    const timeout = setTimeout(() => setVisible(false), 1700);
+    const timeout = setTimeout(() => setVisible(false), 4200);
     return () => clearTimeout(timeout);
   }, []);
   return (

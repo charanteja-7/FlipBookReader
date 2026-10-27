@@ -52,6 +52,9 @@ test('archive introduction can be skipped and does not replay on return', async 
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.goto('./');
   const skip = page.getByRole('button', { name: 'Skip introduction' });
+  await expect(skip).toBeVisible();
+  await page.waitForTimeout(2100);
+  await expect(skip).toBeVisible();
   await skip.click();
   await expect(page.locator('.archive-arrival')).toHaveCount(0);
   await expect(
@@ -443,6 +446,172 @@ test('storage failure leaves a usable explanatory state', async ({ page }) => {
   await expect(page.getByRole('status')).toContainText(
     'Could not add the sample',
   );
+});
+
+test('right and left page taps animate correctly below and above fit zoom', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await read(page);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('#page-number')).toHaveValue('2');
+  const zoom = page.getByRole('spinbutton', { name: 'Zoom percentage' });
+  await zoom.fill('65');
+  await zoom.press('Enter');
+  const right = await page
+    .locator('.pdf-sheet[aria-label="Page 3"] canvas')
+    .first()
+    .boundingBox();
+  await page.mouse.click(
+    right.x + right.width * 0.18,
+    right.y + right.height * 0.6,
+  );
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await expect(page.locator('#page-number')).toHaveValue('4');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  await zoom.fill('140');
+  await zoom.press('Enter');
+  const left = await page
+    .locator('.pdf-sheet[aria-label="Page 4"] canvas')
+    .first()
+    .boundingBox();
+  const y = Math.max(130, Math.min(720, left.y + left.height * 0.5));
+  await page.mouse.click(Math.max(80, left.x + left.width * 0.25), y);
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await expect(page.locator('#page-number')).toHaveValue('2');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  await zoom.fill('65');
+  await zoom.press('Enter');
+  const box = await page.locator('.flip-book').boundingBox();
+  await page.mouse.move(box.x + box.width - 5, box.y + box.height - 5);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.55, box.y + box.height * 0.65, {
+    steps: 12,
+  });
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await page.mouse.move(box.x + box.width * 0.1, box.y + box.height * 0.6, {
+    steps: 10,
+  });
+  await page.mouse.up();
+  await expect(page.locator('#page-number')).toHaveValue('4');
+});
+
+test('a finger tap turns mobile pages with animation and pinching never turns a page', async ({
+  page,
+  context,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await read(page);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Emulation.setTouchEmulationEnabled', {
+    enabled: true,
+    maxTouchPoints: 2,
+  });
+  const canvas = await page
+    .locator('.react-pdf__Page__canvas')
+    .first()
+    .boundingBox();
+  const x = canvas.x + canvas.width * 0.8,
+    y = canvas.y + canvas.height * 0.6;
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x, y, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  await expect(page.locator('#page-number')).toHaveValue('2');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ x: 120, y: 340, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [
+      { x: 120, y: 340, id: 0 },
+      { x: 230, y: 340, id: 1 },
+    ],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [
+      { x: 60, y: 340, id: 0 },
+      { x: 300, y: 340, id: 1 },
+    ],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [{ x: 60, y: 340, id: 0 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchEnd',
+    touchPoints: [],
+  });
+  await expect
+    .poll(async () => Number(await page.locator('#zoom-level').inputValue()))
+    .toBeGreaterThan(180);
+  await expect(page.locator('#page-number')).toHaveValue('2');
+});
+
+test('numeric zoom and rapid wheel zoom keep the reading point anchored', async ({
+  page,
+}) => {
+  await read(page);
+  const center = { x: 640, y: 360 };
+  async function contentAt(point) {
+    return page.locator('.book-position').evaluate((el, point) => {
+      const rect = el.getBoundingClientRect();
+      const surface = el.querySelector('.book-surface');
+      const scale = surface.getBoundingClientRect().width / surface.offsetWidth;
+      return {
+        x: (point.x - rect.left) / scale,
+        y: (point.y - rect.top) / scale,
+      };
+    }, point);
+  }
+  const initial = await contentAt(center);
+  await page.locator('#zoom-level').fill('210');
+  await page.locator('#zoom-level').press('Enter');
+  const numeric = await contentAt(center);
+  expect(Math.abs(numeric.x - initial.x)).toBeLessThan(3);
+  expect(Math.abs(numeric.y - initial.y)).toBeLessThan(3);
+  const point = { x: 710, y: 420 };
+  const before = await contentAt(point);
+  await page.mouse.move(point.x, point.y);
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -35);
+  await page.keyboard.up('Control');
+  await expect
+    .poll(async () => Number(await page.locator('#zoom-level').inputValue()))
+    .toBeGreaterThan(300);
+  const after = await contentAt(point);
+  expect(Math.abs(after.x - before.x)).toBeLessThan(3);
+  expect(Math.abs(after.y - before.y)).toBeLessThan(3);
+  await expect(page.locator('#page-number')).toHaveValue('1');
 });
 
 test('continuous zoom, Ctrl-wheel, pan, and saved zoom', async ({ page }) => {

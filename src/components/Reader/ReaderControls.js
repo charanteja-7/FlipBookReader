@@ -126,7 +126,8 @@ export default function ReaderControls({
             Download original PDF
           </button>
           <p>
-            Drag a corner to turn a page. Pinch or Ctrl + scroll to zoom. Drag
+            Tap the right page to turn forward, or the left to go back. Drag a
+            corner to curl a page. Pinch or Ctrl + scroll to zoom; drag the page
             to pan when enlarged.
           </p>
           <p>
@@ -186,7 +187,7 @@ export function ZoomControls({ zoom, setZoom }) {
       </button>
       <button
         className="fit-button"
-        onClick={() => setZoom(100)}
+        onClick={() => setZoom(100, true)}
         aria-label="Fit page"
       >
         Fit

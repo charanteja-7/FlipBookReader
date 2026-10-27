@@ -886,7 +886,7 @@ button:active {
   background: #15120e;
   border: 1px solid #59452c;
   box-shadow: inset 0 0 100px #000;
-  animation: door-open 1.65s 0.1s cubic-bezier(0.6, 0, 0.2, 1) both;
+  animation: door-open 4s 0.1s cubic-bezier(0.6, 0, 0.2, 1) both;
 }
 .arrival-door::after {
   content: '';
@@ -913,7 +913,7 @@ button:active {
   text-align: center;
   font: 38px/1.1 var(--font-serif);
   position: relative;
-  animation: arrival-ink 1.2s both;
+  animation: arrival-ink 2.8s both;
 }
 .skip-arrival {
   pointer-events: auto;

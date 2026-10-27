@@ -9,7 +9,7 @@ This update applies the requested Harry Potter inspired wizarding-library atmosp
 - Header/footer rows are replaced by compact overlay docks: library/title upper left, actions upper right, progress lower left, navigation lower middle, zoom lower right, bookmarks in a small corner disclosure.
 - Reader page size no longer has a 560px ceiling. Normal mode leaves only narrow control clearance; fullscreen fits the book within a few pixels of the viewport while preserving the PDF aspect ratio.
 - Fullscreen and focus mode start with every visible control hidden. Screen-edge mouse movement or touch, Space, or Tab reveals controls. Escape exits; Tab restores keyboard access.
-- Any whole zoom percentage from 10 to 800 is accepted and persisted. Pinch, Ctrl/Meta-wheel, numeric entry, plus/minus controls, keyboard +/-, 0 to fit, and double-click toggling are supported. Mouse drag and touch pan work on enlarged physical pages.
+- Any whole zoom percentage from 10 to 800 is accepted and persisted. Pinch, Ctrl/Meta-wheel, numeric entry, plus/minus controls, keyboard +/-, and 0 to fit are supported. Mouse drag and touch pan work on enlarged physical pages. Single taps turn pages; double-click zoom is removed so it cannot compete with page-turn taps.
 - Zoom changes the book transform without recreating the page-flip engine. Gesture focal points stay under the pointer/fingers; PDF raster detail is refreshed after a short idle interval and capped to avoid unbounded canvas allocation.
 - Physical page curling runs in desktop spreads and mobile/single-page mode, with stronger paper shadows and an 850ms turn. Text & selection mode and reduced motion use a static selectable page.
 - Stable page children keep the flip engine from replacing its collection during a drag/turn. A rendering context updates nearby PDF canvases without replacing those child elements.
@@ -21,6 +21,7 @@ This update applies the requested Harry Potter inspired wizarding-library atmosp
 - Drag a page corner, click a page edge, swipe, use the navigation dock, or press the arrow keys.
 - Open Reader settings for surroundings, auto/single/spread/text layout, PDF download, and help.
 - Enter a percentage in the zoom dock; pinch or use Ctrl + wheel over the book. Drag to pan when enlarged. Fit or 0 restores 100%.
+- Tap the right page to turn forward and the left to turn back, including while zoomed. On a single page, the left portion goes back and the right portion goes forward. Mouse corner drags use the actual zoom scale; a pinch or pan never also counts as a page-turn tap.
 - B bookmarks, F toggles fullscreen, Space hides/reveals controls, and Escape leaves focus/fullscreen. Tap/move at the top or bottom edge to request fullscreen controls.
 - A portrait page cannot fill both the width and height of every screen without cropping or distortion. Fit preserves its shape; continuous zoom lets the reader choose the crop.
 

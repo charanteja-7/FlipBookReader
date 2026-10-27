@@ -16,7 +16,7 @@ This is a working library, without invented books or activity. Counts, page posi
 
 ## Implementation
 
-- `MidnightLibrary.js`: architectural room, functional collection/desk navigation, restrained pointer parallax, a 1.7-second skippable first-session door reveal, and a reading desk driven by the most recent saved reading date. Reduced motion bypasses the reveal. Restricted session storage does not block the app.
+- `MidnightLibrary.js`: architectural room, functional collection/desk navigation, restrained pointer parallax, a 4.2-second skippable first-session door reveal, and a reading desk driven by the most recent saved reading date. Reduced motion and saved quiet mode bypass the reveal. Restricted session storage does not block the app.
 - `BookBinding.js`: deterministic title-derived binding, five muted cloth/leather colours, three original geometric foil motifs, paper edges, bookmark ribbon, and cover lift. Original PDF previews remain available using **Show PDF covers**. Every link retains the actual complete document title.
 - `BookUpload.js`, `LibraryContext.js`, and `pdf-utils.js`: honest progress through local PDF parsing, first-page rendering, IndexedDB saving, and placement. A successful import highlights its volume and focuses a link to the shelves. Re-selecting the same file works after cancellation. File validation and errors remain intact.
 - `EnchantedAtmosphere.js`: the pause preference survives refresh and controls room motion as well as particles. Reduced motion disables ambient, entrance, and interactive transformations.
