@@ -1,92 +1,172 @@
 'use client';
-
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import HTMLFlipBook from 'react-pageflip';
-import { Document } from 'react-pdf';
+import { Document, pdfjs } from 'react-pdf';
 import PDFPage from './PDFPage';
-import { pdfjs } from 'react-pdf';
-
-// Ensure worker is set (redundant check but safe)
-if (typeof window !== 'undefined' && 'Worker' in window) {
-    pdfjs.GlobalWorkerOptions.workerSrc = `//unpkg.com/pdfjs-dist@${pdfjs.version}/build/pdf.worker.min.mjs`;
-}
-
-export default function FlipBook({ file, onFlip, initialPage = 0 }) {
-    const [numPages, setNumPages] = useState(null);
-    const bookRef = useRef();
-
-    const onDocumentLoadSuccess = ({ numPages }) => {
-        setNumPages(numPages);
-    };
-
-    const handleFlip = useCallback((e) => {
-        // react-pageflip events: e.data is the page number (index)
-        if (onFlip) {
-            onFlip(e.data);
-        }
-    }, [onFlip]);
-
-    // Dimensions - hardcoded for MVP, should be responsive
-    // A4 ratio roughly 1 : 1.414. Let's start with a fixed size that fits well.
-    const width = 450;
-    const height = 650;
-
-    return (
-        <div style={{
-            display: 'flex',
-            justifyContent: 'center',
-            alignItems: 'center',
-            height: '100%',
-            perspective: '1500px'
-        }}>
-            <Document
-                file={file}
-                onLoadSuccess={onDocumentLoadSuccess}
-                loading={<div style={{ color: 'var(--text-secondary)' }}>Loading Book...</div>}
-            >
-                {numPages && (
-                    <HTMLFlipBook
-                        width={width}
-                        height={height}
-                        size="fixed"
-                        minWidth={300}
-                        maxWidth={1000}
-                        minHeight={400}
-                        maxHeight={1533}
-                        maxShadowOpacity={0.5}
-                        showCover={true}
-                        mobileScrollSupport={true}
-                        onFlip={handleFlip}
-                        ref={bookRef}
-                        className="flip-book"
-                        style={{ margin: '0 auto' }}
-                        startPage={initialPage}
-                        drawShadow={true}
-                        flippingTime={1000}
-                        usePortrait={false} // Force spread for now, or detect
-                        startZIndex={0}
-                        autoSize={true}
-                        clickEventForward={true}
-                        useMouseEvents={true}
-                        swipeDistance={30}
-                        showPageCorners={true}
-                        disableFlipByClick={false}
-                    >
-                        {/* 
-                    We need to create a div for each page.
-                    React-pageflip children are pages.
-                */}
-                        {Array.from(new Array(numPages), (el, index) => (
-                            <PDFPage
-                                key={`page_${index + 1}`}
-                                pageNumber={index + 1}
-                                width={width}
-                                height={height}
-                            />
-                        ))}
-                    </HTMLFlipBook>
-                )}
-            </Document>
-        </div>
+import { basePath, pdfOptions } from '@/lib/pdf-utils';
+import 'react-pdf/dist/Page/TextLayer.css';
+pdfjs.GlobalWorkerOptions.workerSrc = `${basePath}/pdf.worker.min.mjs`;
+const options = pdfOptions;
+export default function FlipBook({
+  file,
+  currentPage,
+  onPageChange,
+  onLoad,
+  layout,
+  zoom,
+  reducedMotion,
+}) {
+  const host = useRef(null);
+  const flip = useRef(null);
+  const touch = useRef(null);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [pdf, setPdf] = useState(null);
+  const [ratio, setRatio] = useState(1.414);
+  const [error, setError] = useState('');
+  const single = layout === 'single' || size.width < 720;
+  const width = Math.max(
+    100,
+    Math.floor(
+      (Math.min(
+        (size.width - 32) / (single ? 1 : 2),
+        (size.height - 24) / ratio,
+        560,
+      ) *
+        zoom) /
+        100,
+    ),
+  );
+  const height = Math.floor(width * ratio);
+  useEffect(() => {
+    const observer = new ResizeObserver(([entry]) =>
+      setSize({
+        width: entry.contentRect.width,
+        height: entry.contentRect.height,
+      }),
     );
+    observer.observe(host.current);
+    return () => observer.disconnect();
+  }, []);
+  const loaded = useCallback(
+    async (document) => {
+      setPdf(document);
+      onLoad(document.numPages);
+      try {
+        const page = await document.getPage(1);
+        const v = page.getViewport({ scale: 1 });
+        setRatio(v.height / v.width);
+      } catch {
+        /* Default A4 fit remains usable. */
+      }
+    },
+    [onLoad],
+  );
+  useEffect(() => {
+    const controller = flip.current?.pageFlip();
+    if (!controller || controller.getCurrentPageIndex() === currentPage) return;
+    // turnToPage avoids animated travel across dozens of pages on direct jumps.
+    if (
+      reducedMotion ||
+      Math.abs(controller.getCurrentPageIndex() - currentPage) > 2
+    )
+      controller.turnToPage(currentPage);
+    else controller.flip(currentPage);
+  }, [currentPage, reducedMotion, width]);
+  function swipeEnd(event) {
+    if (!touch.current || !single || window.getSelection()?.toString()) return;
+    const dx = event.changedTouches[0].clientX - touch.current.x;
+    const dy = event.changedTouches[0].clientY - touch.current.y;
+    if (Math.abs(dx) > 65 && Math.abs(dx) > Math.abs(dy) * 1.8 && zoom === 100)
+      onPageChange(currentPage + (dx < 0 ? 1 : -1));
+    touch.current = null;
+  }
+  return (
+    <div
+      ref={host}
+      className="reader-stage"
+      tabIndex={0}
+      role="region"
+      aria-label="PDF pages"
+      onTouchStart={(e) => {
+        touch.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      }}
+      onTouchEnd={swipeEnd}
+    >
+      <Document
+        file={file}
+        options={options}
+        onLoadSuccess={loaded}
+        onLoadError={() =>
+          setError(
+            'This PDF could not be opened. Return to the library and add an unlocked, valid PDF.',
+          )
+        }
+        loading={
+          <p className="reader-loading" role="status">
+            Opening your book...
+          </p>
+        }
+        error={
+          <p role="alert" className="reader-loading">
+            {error || 'Unable to open PDF.'}
+          </p>
+        }
+      >
+        {pdf &&
+          size.width > 0 &&
+          (single ? (
+            <div
+              className={'single-page' + (reducedMotion ? ' no-motion' : '')}
+              key={currentPage}
+              style={{ width, height }}
+            >
+              <PDFPage
+                pageNumber={currentPage + 1}
+                width={width}
+                height={height}
+                active
+                textLayer
+              />
+            </div>
+          ) : (
+            <HTMLFlipBook
+              key={`${width}-${height}`}
+              ref={flip}
+              width={width}
+              height={height}
+              size="fixed"
+              minWidth={100}
+              maxWidth={1000}
+              minHeight={100}
+              maxHeight={1600}
+              startPage={currentPage}
+              showCover
+              usePortrait={false}
+              drawShadow={!reducedMotion}
+              maxShadowOpacity={0.12}
+              flippingTime={reducedMotion ? 1 : 420}
+              mobileScrollSupport
+              useMouseEvents={!reducedMotion}
+              showPageCorners={!reducedMotion}
+              disableFlipByClick={reducedMotion}
+              swipeDistance={50}
+              onFlip={(event) => onPageChange(event.data)}
+              className={
+                'flip-book' + (currentPage === 0 ? ' closed-book' : '')
+              }
+            >
+              {Array.from({ length: pdf.numPages }, (_, index) => (
+                <PDFPage
+                  key={index}
+                  pageNumber={index + 1}
+                  width={width}
+                  height={height}
+                  active={Math.abs(index - currentPage) <= 3}
+                />
+              ))}
+            </HTMLFlipBook>
+          ))}
+      </Document>
+    </div>
+  );
 }

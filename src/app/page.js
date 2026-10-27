@@ -1,32 +1,50 @@
-'use client';
-
+import { BookOpen } from 'lucide-react';
 import BookUpload from '@/components/BookUpload';
 import Bookshelf from '@/components/Bookshelf';
-
+import DataSettings from '@/components/DataSettings';
+import SampleBook from '@/components/SampleBook';
 export default function Home() {
   return (
-    <main style={{
-      maxWidth: '1200px',
-      margin: '0 auto',
-      padding: '2rem',
-      minHeight: '100vh'
-    }}>
-      <header style={{ marginBottom: '3rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h1 style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>Library</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>Your digital collection</p>
-        </div>
-        {/* Placeholder for Theme Toggle or Search */}
+    <>
+      <a className="skip-link" href="#main">
+        Skip to library
+      </a>
+      <header className="site-header">
+        <a className="wordmark" href="./">
+          <BookOpen size={25} aria-hidden="true" />
+          FlipBookReader
+        </a>
+        <DataSettings />
       </header>
-
-      <section style={{ marginBottom: '4rem' }}>
+      <main id="main" className="library-main">
+        <div className="library-intro">
+          <div>
+            <h1>A place for your pages.</h1>
+            <p>
+              Your personal PDF library. Open a book, settle in, pick up where
+              you left off.
+            </p>
+          </div>
+          <span className="local-note">
+            <span aria-hidden="true" className="local-dot" />
+            Stored on this device
+          </span>
+        </div>
         <BookUpload />
-      </section>
-
-      <section>
-        <h2 style={{ marginBottom: '1.5rem', fontSize: '1.5rem' }}>Your Books</h2>
         <Bookshelf />
-      </section>
-    </main>
+        <SampleBook />
+      </main>
+      <footer className="site-footer">
+        <span>FlipBookReader</span>
+        <p>Less scrolling. More reading.</p>
+        <a
+          href="https://github.com/charanteja-7/FlipBookReader"
+          target="_blank"
+          rel="noreferrer"
+        >
+          View source <span className="sr-only">(opens in a new tab)</span>
+        </a>
+      </footer>
+    </>
   );
 }

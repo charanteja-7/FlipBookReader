@@ -1,77 +1,88 @@
 'use client';
-
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { getAllBooks, addBook as dbAddBook, deleteBook as dbDeleteBook, updateBook as dbUpdateBook } from '@/lib/storage';
-import { extractCover } from '@/lib/pdf-utils';
-import { v4 as uuidv4 } from 'uuid';
-
-
-
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+} from 'react';
+import {
+  getAllBooks,
+  addBook as storeBook,
+  deleteBook,
+  updateBook,
+} from '@/lib/storage';
+import { inspectPDF } from '@/lib/pdf-utils';
 const LibraryContext = createContext();
-
 export const useLibrary = () => useContext(LibraryContext);
-
-export const LibraryProvider = ({ children }) => {
-    const [books, setBooks] = useState([]);
-    const [loading, setLoading] = useState(true);
-
-    const refreshBooks = async () => {
-        setLoading(true);
-        const loadedBooks = await getAllBooks();
-        // Sort by date added desc
-        loadedBooks.sort((a, b) => new Date(b.dateAdded) - new Date(a.dateAdded));
-        setBooks(loadedBooks);
-        setLoading(false);
-    };
-
-    useEffect(() => {
-        refreshBooks();
-    }, []);
-
-    const addBook = async (file, genre = 'Uncategorized') => {
-        if (!file) return;
-
-        try {
-            const cover = await extractCover(file);
-            const newBook = {
-                id: uuidv4(),
-                title: file.name.replace('.pdf', ''),
-                fileBlob: file, // IDB can store Blobs
-                coverImage: cover,
-                dateAdded: new Date(),
-                lastReadPage: 0,
-                genre: genre,
-                isFavorite: false
-            };
-
-            await dbAddBook(newBook);
-            await refreshBooks();
-        } catch (error) {
-            console.error("Failed to add book:", error);
-        }
-    };
-
-    const removeBook = async (id) => {
-        await dbDeleteBook(id);
-        await refreshBooks();
-    };
-
-    const toggleFavorite = async (id) => {
-        const book = books.find(b => b.id === id);
-        if (book) {
-            await dbUpdateBook(id, { isFavorite: !book.isFavorite });
-            await refreshBooks();
-        }
+export function LibraryProvider({ children }) {
+  const [books, setBooks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const refreshBooks = useCallback(async () => {
+    try {
+      setBooks(
+        (await getAllBooks()).sort(
+          (a, b) =>
+            new Date(b.lastReadDate || b.dateAdded) -
+            new Date(a.lastReadDate || a.dateAdded),
+        ),
+      );
+      setError('');
+    } catch {
+      setError(
+        'Device storage is unavailable. Allow site storage, then reload to use your library.',
+      );
+    } finally {
+      setLoading(false);
     }
-
-    const updateBookGenre = async (id, newGenre) => {
-        await dbUpdateBook(id, { genre: newGenre });
-        await refreshBooks();
+  }, []);
+  useEffect(() => {
+    refreshBooks();
+  }, [refreshBooks]);
+  async function addBook(file, genre = 'Uncategorized') {
+    const details = await inspectPDF(file);
+    try {
+      await storeBook({
+        id: crypto.randomUUID(),
+        title: file.name.replace(/\.pdf$/i, ''),
+        fileBlob: file,
+        ...details,
+        dateAdded: new Date(),
+        lastReadPage: 0,
+        bookmarks: [],
+        genre: genre.trim() || 'Uncategorized',
+        isFavorite: false,
+      });
+    } catch {
+      throw new Error(
+        'Could not save this PDF. Your device storage may be full or disabled.',
+      );
     }
-
-    return (
-        <LibraryContext.Provider value={{ books, loading, addBook, removeBook, toggleFavorite, updateBookGenre }}>
-            {children}
-        </LibraryContext.Provider>
-    );
-};
+    await refreshBooks();
+  }
+  async function removeBook(id) {
+    await deleteBook(id);
+    await refreshBooks();
+  }
+  async function toggleFavorite(id) {
+    const book = books.find((b) => b.id === id);
+    await updateBook(id, { isFavorite: !book.isFavorite });
+    await refreshBooks();
+  }
+  return (
+    <LibraryContext.Provider
+      value={{
+        books,
+        loading,
+        error,
+        addBook,
+        removeBook,
+        toggleFavorite,
+        refreshBooks,
+      }}
+    >
+      {children}
+    </LibraryContext.Provider>
+  );
+}

@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+.npm-cache
+.taste-skill
+package-lock.json
+public
+test-results
+playwright-report
