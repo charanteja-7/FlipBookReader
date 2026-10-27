@@ -2,7 +2,13 @@
 import { useRef, useState } from 'react';
 import { X, Download, RotateCcw } from 'lucide-react';
 import { useLibrary } from '@/context/LibraryContext';
-import { clearBooks, importReadingData } from '@/lib/storage';
+import {
+  clearBooks,
+  getAllAnnotations,
+  importAnnotations,
+  importReadingData,
+} from '@/lib/storage';
+import { validateAnnotations } from '@/lib/annotations';
 import {
   loadPreferences,
   savePreferences,
@@ -15,7 +21,13 @@ export default function DataSettings() {
   const { books, refreshBooks } = useLibrary();
   const [message, setMessage] = useState('');
   const [busy, setBusy] = useState(false);
-  function exportData() {
+  async function exportData() {
+    let annotations = [];
+    try {
+      annotations = await getAllAnnotations();
+    } catch {
+      /* Export positions even if highlights cannot be read. */
+    }
     const data = {
       version: 1,
       preferences: loadPreferences(),
@@ -25,6 +37,7 @@ export default function DataSettings() {
         bookmarks: b.bookmarks || [],
         isFavorite: !!b.isFavorite,
       })),
+      annotations,
     };
     const url = URL.createObjectURL(
       new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
@@ -47,11 +60,16 @@ export default function DataSettings() {
         throw new Error('Choose an export smaller than 2 MB.');
       const data = JSON.parse(await selected.text());
       const records = validateBackup(data);
+      const annotations = validateAnnotations(
+        data.annotations,
+        new Set(books.map((b) => b.id)),
+      );
       const count = await importReadingData(records);
+      const notes = await importAnnotations(annotations);
       const saved = savePreferences(validatePreferences(data.preferences));
       await refreshBooks();
       setMessage(
-        `Updated ${count} matching books. ${saved ? 'Preferences imported.' : 'Preferences could not be saved.'}`,
+        `Updated ${count} matching books${notes ? ` and ${notes} highlights or notes` : ''}. ${saved ? 'Preferences imported.' : 'Preferences could not be saved.'}`,
       );
     } catch (error) {
       setMessage(
@@ -67,7 +85,7 @@ export default function DataSettings() {
   async function reset() {
     if (
       !confirm(
-        'Permanently remove all books, bookmarks, history, and preferences from this device? Export your reading data and download your PDFs first.',
+        'Permanently remove all books, bookmarks, highlights, notes, history, and preferences from this device? Export your reading data and download your PDFs first.',
       )
     )
       return;
@@ -124,9 +142,9 @@ export default function DataSettings() {
           <div>
             <h3>Reading-data backup</h3>
             <p>
-              Export settings, favorites, positions, and bookmarks. PDFs are
-              excluded. Imports update matching book IDs in this library; they
-              do not restore deleted books.
+              Export settings, favorites, positions, bookmarks, highlights, and
+              notes. PDFs are excluded. Imports update matching book IDs in this
+              library; they do not restore deleted books.
             </p>
           </div>
           <div className="button-row">

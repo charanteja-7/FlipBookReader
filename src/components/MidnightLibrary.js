@@ -5,7 +5,7 @@ import { ArrowDown, ArrowUpRight, BookOpen, LockKeyhole } from 'lucide-react';
 import BookUpload from './BookUpload';
 import Bookshelf from './Bookshelf';
 import DataSettings from './DataSettings';
-import SampleBook from './SampleBook';
+import SampleBook, { SampleButton } from './SampleBook';
 import BookBinding from './BookBinding';
 import EnchantedAtmosphere from './EnchantedAtmosphere';
 import { useLibrary } from '@/context/LibraryContext';
@@ -44,44 +44,53 @@ function Arrival() {
   );
 }
 
-function ReadingDesk() {
-  const { books } = useLibrary();
-  const book = books
+const lastOpened = (books) =>
+  books
     .filter((b) => b.lastReadDate)
     .sort((a, b) => new Date(b.lastReadDate) - new Date(a.lastReadDate))[0];
+const readHref = (book) => `/read/?id=${encodeURIComponent(book.id)}`;
+const pageOf = (book) =>
+  Math.min((book.lastReadPage || 0) + 1, book.numPages || 1);
+function ReadingDesk() {
+  const { books } = useLibrary();
+  // The last book opened, or else the newest one still waiting to be started.
+  const recent = lastOpened(books);
+  const book = recent || books[0];
   if (!book)
     return (
       <div className="reading-desk" id="reading-desk">
-        <SampleBook />
+        <SampleBook action={false} />
       </div>
     );
-  const page = Math.min((book.lastReadPage || 0) + 1, book.numPages || 1);
+  const page = pageOf(book);
   return (
     <section
       className="reading-desk"
       id="reading-desk"
       aria-labelledby="desk-title"
     >
-      <span className="desk-caption">On your reading desk</span>
-      <Link
-        className="desk-volume"
-        href={`/read/?id=${encodeURIComponent(book.id)}`}
-      >
+      <span className="desk-caption">
+        {recent ? 'On your reading desk' : 'Ready on your reading desk'}
+      </span>
+      <Link className="desk-volume" href={readHref(book)}>
         <BookBinding book={book} />
-        <span className="sr-only">Continue reading {book.title}</span>
+        <span className="sr-only">
+          {recent ? 'Continue reading' : 'Start reading'} {book.title}
+        </span>
       </Link>
       <div className="desk-copy">
-        <span className="desk-note">Just where you left it.</span>
+        <span className="desk-note">
+          {recent ? 'Just where you left it.' : 'Ready when you are.'}
+        </span>
         <h2 id="desk-title">{book.title}</h2>
         <p>
-          Page {page} of {book.numPages} ·{' '}
-          {Math.round((page / book.numPages) * 100)}% read
+          {recent
+            ? `Page ${page} of ${book.numPages} · ${Math.round((page / book.numPages) * 100)}% read`
+            : `${book.numPages} pages · not started yet`}
         </p>
-        <Link
-          className="text-action"
-          href={`/read/?id=${encodeURIComponent(book.id)}`}
-        >
-          Continue reading <ArrowUpRight size={17} aria-hidden="true" />
+        <Link className="text-action" href={readHref(book)}>
+          {recent ? 'Continue reading' : 'Start reading'}{' '}
+          <ArrowUpRight size={17} aria-hidden="true" />
         </Link>
       </div>
     </section>
@@ -93,6 +102,7 @@ export default function MidnightLibrary() {
   const frame = useRef(null);
   const { books } = useLibrary();
   const [quiet, setQuiet] = useState(false);
+  const recent = lastOpened(books);
   useEffect(() => () => cancelAnimationFrame(frame.current), []);
   function followLight(event) {
     if (
@@ -169,11 +179,30 @@ export default function MidnightLibrary() {
               <em>between pages.</em>
             </h1>
             <p className="threshold-description">
+              <strong>
+                Open any PDF as a real book: flip its pages, highlight lines,
+                and keep notes.
+              </strong>
               For the curious. The night owls. The one-more-page people.
-              <br className="desktop-break" /> A little sanctuary for every PDF
-              you keep.
             </p>
-            <BookUpload />
+            <BookUpload
+              quiet={!!recent}
+              before={
+                recent && (
+                  <Link
+                    className="primary hero-continue"
+                    href={readHref(recent)}
+                  >
+                    Continue reading{' '}
+                    <span>
+                      {recent.title} · page {pageOf(recent)} of{' '}
+                      {recent.numPages}
+                    </span>
+                  </Link>
+                )
+              }
+              after={!books.length && <SampleButton />}
+            />
             <p className="archive-privacy">
               <LockKeyhole size={13} aria-hidden="true" /> Yours alone. Books
               stay on this device.
@@ -191,7 +220,7 @@ export default function MidnightLibrary() {
           </span>
         </section>
         <Bookshelf />
-        {books.some((book) => book.lastReadDate) && <SampleBook compact />}
+        {books.length > 0 && <SampleBook compact />}
       </main>
       <footer className="site-footer archive-footer">
         <span>Flip · The Midnight Archive</span>

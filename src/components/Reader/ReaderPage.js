@@ -1,13 +1,21 @@
 'use client';
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import dynamic from 'next/dynamic';
-import { getBook, updateBook } from '@/lib/storage';
+import {
+  deleteAnnotation,
+  getAnnotations,
+  getBook,
+  saveAnnotation,
+  updateBook,
+} from '@/lib/storage';
+import { notesMarkdown, pageRects } from '@/lib/annotations';
 import { defaults, loadPreferences, savePreferences } from '@/lib/preferences';
 import { clampZoom } from '@/lib/zoom';
 import { useLibrary } from '@/context/LibraryContext';
 import ReaderControls, { PageNavigation, ZoomControls } from './ReaderControls';
+import { AnnotationPopover, NotesPanel } from './Annotations';
 const FlipBook = dynamic(() => import('./FlipBook'), {
   ssr: false,
   loading: () => (
@@ -29,6 +37,11 @@ export default function ReaderPage() {
     [focused, setFocused] = useState(false),
     [revealed, setRevealed] = useState(false);
   const immersive = isFullscreen || focused;
+  const [annotations, setAnnotations] = useState([]),
+    [marking, setMarking] = useState(false),
+    [notesOpen, setNotesOpen] = useState(false),
+    [popover, setPopover] = useState(null);
+  const selection = useRef(null);
   const root = useRef(null),
     reader = useRef(null),
     totalRef = useRef(0),
@@ -57,6 +70,11 @@ export default function ReaderPage() {
           return;
         }
         setBook(data);
+        getAnnotations(data.id)
+          .then((list) => !cancelled && setAnnotations(list))
+          .catch(() => {
+            /* A book still opens if its highlights cannot be read. */
+          });
         pageRef.current = Math.max(0, data.lastReadPage || 0);
         setPage(pageRef.current);
         setTotal(data.numPages || 0);
@@ -143,6 +161,164 @@ export default function ReaderPage() {
     setBook({ ...book, bookmarks });
     persist(book.id, { bookmarks });
   }, [book, persist]);
+  const marks = useMemo(() => {
+    const byPage = {};
+    for (const a of annotations) (byPage[a.page] ||= []).push(a);
+    return byPage;
+  }, [annotations]);
+  const keepMark = useCallback((annotation) => {
+    setAnnotations((list) => [
+      ...list.filter((a) => a.id !== annotation.id),
+      annotation,
+    ]);
+    // Queued with reading progress, so leaving the reader waits for the write.
+    writeQueue.current = writeQueue.current
+      .then(() => saveAnnotation(annotation))
+      .catch(() =>
+        setMessage(
+          'This highlight could not be saved. Check your available device storage.',
+        ),
+      );
+  }, []);
+  function newMark(fields) {
+    const now = new Date().toISOString();
+    return {
+      id: crypto.randomUUID(),
+      bookId: book.id,
+      color: null,
+      rects: [],
+      text: '',
+      note: '',
+      createdAt: now,
+      updatedAt: now,
+      ...fields,
+    };
+  }
+  function createHighlight(color, writing = false) {
+    const picked = selection.current;
+    if (!picked) return;
+    const annotation = newMark({ kind: 'highlight', color, ...picked });
+    keepMark(annotation);
+    selection.current = null;
+    getSelection()?.removeAllRanges();
+    setPopover(writing ? { ...popover, id: annotation.id, writing } : null);
+  }
+  function updateMark(id, changes) {
+    const annotation = annotations.find((a) => a.id === id);
+    if (annotation)
+      keepMark({
+        ...annotation,
+        ...changes,
+        updatedAt: new Date().toISOString(),
+      });
+  }
+  function removeMark(id) {
+    setAnnotations((list) => list.filter((a) => a.id !== id));
+    setPopover((current) => (current?.id === id ? null : current));
+    writeQueue.current = writeQueue.current
+      .then(() => deleteAnnotation(id))
+      .catch(() =>
+        setMessage('This highlight could not be removed from device storage.'),
+      );
+  }
+  function exportNotes() {
+    const url = URL.createObjectURL(
+      new Blob([notesMarkdown(book.title, annotations)], {
+        type: 'text/markdown',
+      }),
+    );
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${book.title} - notes.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+  const openMark = useCallback(
+    (id, x, y) => setPopover({ id, x, y, top: y }),
+    [],
+  );
+  const toggleMarking = useCallback(() => {
+    setMarking((on) => {
+      if (on) getSelection()?.removeAllRanges();
+      return !on;
+    });
+    setPopover(null);
+  }, []);
+  // A finished selection on a page offers to become a highlight.
+  useEffect(() => {
+    let pressed = false,
+      timer;
+    function read() {
+      const picked = getSelection();
+      const stage = root.current?.querySelector('.reader-stage');
+      if (!picked || picked.isCollapsed || !picked.rangeCount || !stage) {
+        selection.current = null;
+        setPopover((current) => (current && !current.id ? null : current));
+        return;
+      }
+      const range = picked.getRangeAt(0);
+      const node = range.commonAncestorContainer;
+      if (!stage.contains(node.nodeType === 1 ? node : node.parentNode)) return;
+      const sheets = [...stage.querySelectorAll('.pdf-sheet')]
+        .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width);
+      const groups = new Map();
+      for (const r of range.getClientRects()) {
+        const x = r.left + r.width / 2,
+          y = r.top + r.height / 2;
+        const sheet = sheets.find(
+          ({ rect }) =>
+            x >= rect.left &&
+            x <= rect.right &&
+            y >= rect.top &&
+            y <= rect.bottom,
+        );
+        if (sheet) groups.set(sheet, [...(groups.get(sheet) || []), r]);
+      }
+      // A selection that crosses the spine keeps the page holding most of it.
+      let best = null;
+      for (const entry of groups)
+        if (!best || entry[1].length > best[1].length) best = entry;
+      if (!best) return;
+      const [sheet, found] = best;
+      const rects = pageRects(found, sheet.rect);
+      if (!rects.length) return;
+      selection.current = {
+        page: Number(sheet.element.dataset.page),
+        rects,
+        text: picked.toString().replace(/\s+/g, ' ').trim().slice(0, 5000),
+      };
+      const last = found[found.length - 1];
+      setPopover({
+        x: last.left + last.width / 2,
+        y: last.bottom,
+        top: found[0].top,
+      });
+    }
+    const down = (event) => {
+      if (!event.target.closest?.('.mark-popover')) pressed = true;
+    };
+    const up = () => {
+      if (!pressed) return;
+      pressed = false;
+      clearTimeout(timer);
+      timer = setTimeout(read, 10);
+    };
+    const change = () => {
+      if (pressed) return;
+      clearTimeout(timer);
+      timer = setTimeout(read, 250);
+    };
+    document.addEventListener('pointerdown', down);
+    document.addEventListener('pointerup', up);
+    document.addEventListener('selectionchange', change);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener('pointerdown', down);
+      document.removeEventListener('pointerup', up);
+      document.removeEventListener('selectionchange', change);
+    };
+  }, []);
   function revealChrome() {
     setRevealed(true);
     clearTimeout(hideTimer.current);
@@ -181,6 +357,12 @@ export default function ReaderPage() {
   }, []);
   useEffect(() => {
     function key(event) {
+      if (event.key === 'Escape' && (popover || notesOpen || marking)) {
+        if (popover) setPopover(null);
+        else if (notesOpen) setNotesOpen(false);
+        else toggleMarking();
+        return;
+      }
       if (event.key === 'Escape') {
         setFocused(false);
         setRevealed(false);
@@ -223,6 +405,10 @@ export default function ReaderPage() {
         toggleBookmark();
         return;
       }
+      if (event.key.toLowerCase() === 'h') {
+        toggleMarking();
+        return;
+      }
       if (['+', '='].includes(event.key)) {
         event.preventDefault();
         setZoom(preferences.zoom + 10);
@@ -263,6 +449,10 @@ export default function ReaderPage() {
     preferences.zoom,
     setZoom,
     toggleBookmark,
+    toggleMarking,
+    popover,
+    notesOpen,
+    marking,
   ]);
   async function leave() {
     await writeQueue.current;
@@ -338,6 +528,9 @@ export default function ReaderPage() {
         reducedMotion={reducedMotion}
         immersive={immersive}
         onReady={setReady}
+        marks={marks}
+        marking={marking}
+        onMark={openMark}
       />
       <div
         className="reader-chrome"
@@ -357,6 +550,11 @@ export default function ReaderPage() {
             setRevealed(false);
           }}
           onLeave={leave}
+          marking={marking}
+          toggleMarking={toggleMarking}
+          notesCount={annotations.length}
+          notesOpen={notesOpen}
+          toggleNotes={() => setNotesOpen((open) => !open)}
         />
         <ZoomControls zoom={preferences.zoom} setZoom={setZoom} />
         <div className="reading-footer reader-orbit">
@@ -393,6 +591,39 @@ export default function ReaderPage() {
           ready={ready}
         />
       </div>
+      {marking && (
+        <div className="marking-hint">
+          <span role="status">
+            Highlighter on. Select text, then pick a colour.
+          </span>
+          <button onClick={toggleMarking}>Done</button>
+        </div>
+      )}
+      {popover && (
+        <AnnotationPopover
+          key={popover.id || 'selection'}
+          popover={popover}
+          annotation={annotations.find((a) => a.id === popover.id)}
+          onCreate={createHighlight}
+          onUpdate={updateMark}
+          onDelete={removeMark}
+          onClose={() => setPopover(null)}
+        />
+      )}
+      {notesOpen && (
+        <NotesPanel
+          annotations={annotations}
+          page={page}
+          go={go}
+          onAddNote={(note) =>
+            keepMark(newMark({ kind: 'note', page: pageRef.current, note }))
+          }
+          onUpdate={updateMark}
+          onDelete={removeMark}
+          onExport={exportNotes}
+          onClose={() => setNotesOpen(false)}
+        />
+      )}
       {immersive && total > 0 && (
         <span key={page} className="page-toast" aria-hidden="true">
           {page + 1} <small>of {total}</small>

@@ -30,6 +30,9 @@ const FlipBook = forwardRef(function FlipBook(
     immersive,
     onTurning,
     onReady,
+    marks,
+    marking,
+    onMark,
   },
   apiRef,
 ) {
@@ -44,7 +47,13 @@ const FlipBook = forwardRef(function FlipBook(
   // Turns requested while a page is still moving: a relative count, or an exact page.
   const queued = useRef({ steps: 0, target: null });
   const drain = useRef(null);
-  const callbacks = useRef({ onZoom, onPageChange, onTurning, onReady });
+  const callbacks = useRef({
+    onZoom,
+    onPageChange,
+    onTurning,
+    onReady,
+    onMark,
+  });
   const [size, setSize] = useState({ width: 0, height: 0 });
   const [pdf, setPdf] = useState(null);
   const [ratio, setRatio] = useState(1.414);
@@ -52,6 +61,8 @@ const FlipBook = forwardRef(function FlipBook(
   const [turning, setTurning] = useState(false);
   const [heading, setHeading] = useState(null);
   const plain = layout === 'text' || reducedMotion || pdf?.numPages === 1;
+  // Text is selectable here, so the book's own taps, drags and swipes stand aside.
+  const manual = layout === 'text' || marking;
   const single = plain || layout === 'single' || size.width < 720;
   const gutter = immersive ? 8 : 12;
   const width = Math.max(
@@ -79,9 +90,9 @@ const FlipBook = forwardRef(function FlipBook(
   const depth = Math.min(10, Math.max(2, Math.round(count / 14)));
   const read = count > 1 ? Math.round((depth * currentPage) / (count - 1)) : 0;
   useEffect(() => {
-    callbacks.current = { onZoom, onPageChange, onTurning, onReady };
+    callbacks.current = { onZoom, onPageChange, onTurning, onReady, onMark };
     zoomRef.current = zoom;
-  }, [onZoom, onPageChange, onTurning, onReady, zoom]);
+  }, [onZoom, onPageChange, onTurning, onReady, onMark, zoom]);
   useEffect(() => {
     // Measure without scrollbars: a curling page briefly overflows the stage, and a
     // scrollbar-sized resize would rebuild the book in the middle of the gesture.
@@ -320,8 +331,29 @@ const FlipBook = forwardRef(function FlipBook(
       : point && point.x < block.offsetWidth / 2;
     return previous ? -1 : 1;
   }
+  // A highlight or note pin under the pointer, found by geometry because marks
+  // never intercept the pointer themselves.
+  function markAt(x, y) {
+    for (const element of host.current.querySelectorAll('[data-mark]')) {
+      const rect = element.getBoundingClientRect();
+      if (
+        rect.width &&
+        x >= rect.left - 2 &&
+        x <= rect.right + 2 &&
+        y >= rect.top - 2 &&
+        y <= rect.bottom + 2
+      )
+        return element.dataset.mark;
+    }
+    return null;
+  }
   function tapPage(x, y) {
     if (window.getSelection()?.toString()) return;
+    const mark = markAt(x, y);
+    if (mark) {
+      callbacks.current.onMark?.(mark, x, y);
+      return;
+    }
     const direction = sideAt(x, y);
     if (!direction) return;
     const rect = host.current
@@ -333,9 +365,7 @@ const FlipBook = forwardRef(function FlipBook(
   function aim(event) {
     const element = host.current;
     const direction =
-      zoomRef.current <= 100 &&
-      layout !== 'text' &&
-      event.target.closest('.pdf-sheet')
+      zoomRef.current <= 100 && !manual && event.target.closest('.pdf-sheet')
         ? sideAt(event.clientX, event.clientY)
         : 0;
     const blocked =
@@ -383,12 +413,7 @@ const FlipBook = forwardRef(function FlipBook(
     );
   }
   function pointerDown(event) {
-    if (
-      event.pointerType !== 'mouse' ||
-      event.button !== 0 ||
-      layout === 'text'
-    )
-      return;
+    if (event.pointerType !== 'mouse' || event.button !== 0 || manual) return;
     const sheet = event.target.closest('.pdf-sheet');
     const rect = sheet?.getBoundingClientRect();
     const corner =
@@ -424,7 +449,10 @@ const FlipBook = forwardRef(function FlipBook(
     event.preventDefault();
   }
   function pointerMove(event) {
-    if (event.pointerType !== 'mouse' || layout === 'text') return;
+    if (event.pointerType !== 'mouse' || manual) {
+      delete host.current.dataset.aim;
+      return;
+    }
     const gesture = mouse.current;
     const point = bookPoint(event.clientX, event.clientY);
     if (!gesture) {
@@ -460,7 +488,7 @@ const FlipBook = forwardRef(function FlipBook(
       event.currentTarget.releasePointerCapture(event.pointerId);
   }
   function touchStart(event) {
-    if (layout === 'text') return;
+    if (manual) return;
     event.stopPropagation();
     const points = event.touches;
     if (!points.length) return;
@@ -491,7 +519,7 @@ const FlipBook = forwardRef(function FlipBook(
     };
   }
   function touchMove(event) {
-    if (layout === 'text') return;
+    if (manual) return;
     event.stopPropagation();
     const gesture = touch.current;
     if (!gesture) return;
@@ -531,7 +559,7 @@ const FlipBook = forwardRef(function FlipBook(
     }
   }
   function touchEnd(event) {
-    if (layout === 'text') return;
+    if (manual) return;
     event.stopPropagation();
     const gesture = touch.current;
     if (!gesture) return;
@@ -562,7 +590,7 @@ const FlipBook = forwardRef(function FlipBook(
   return (
     <div
       ref={host}
-      className={`reader-stage ${zoom > 100 ? 'zoomed' : ''} ${plain ? 'text-mode' : ''}`}
+      className={`reader-stage ${zoom > 100 ? 'zoomed' : ''} ${plain ? 'text-mode' : ''} ${marking ? 'selecting' : ''}`}
       tabIndex={0}
       role="region"
       aria-label="PDF pages"
@@ -573,6 +601,12 @@ const FlipBook = forwardRef(function FlipBook(
       onTouchCancelCapture={() => {
         if (touch.current?.folding) releaseFold(touch.current, touch.current.x);
         touch.current = null;
+      }}
+      onClick={(event) => {
+        if (!manual || !window.getSelection()?.isCollapsed) return;
+        const mark = markAt(event.clientX, event.clientY);
+        if (mark)
+          callbacks.current.onMark?.(mark, event.clientX, event.clientY);
       }}
       onPointerDown={pointerDown}
       onPointerMove={pointerMove}
@@ -605,7 +639,14 @@ const FlipBook = forwardRef(function FlipBook(
         }
       >
         {pdf && size.width > 0 && (
-          <RenderContext.Provider value={{ page: currentPage, pixelRatio }}>
+          <RenderContext.Provider
+            value={{
+              page: currentPage,
+              pixelRatio,
+              marks,
+              selecting: !!marking,
+            }}
+          >
             <div
               className={`book-position ${single ? 'portrait' : 'spread'} pose-${pose}`}
               style={{

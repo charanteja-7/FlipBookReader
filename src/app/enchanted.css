@@ -1415,3 +1415,354 @@ button.danger:hover {
   background: #d7b976;
   color: #142019;
 }
+
+/* Highlights and notes. Marks sit between the painted page and its text layer. */
+.pdf-sheet .react-pdf__Page .textLayer {
+  z-index: 2;
+}
+.page-marks {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  /* The layer is its own stacking context, so it blends as a whole: ink shows
+     through the colour like a real highlighter. */
+  mix-blend-mode: multiply;
+}
+.mark {
+  position: absolute;
+  border-radius: 2px;
+  animation: mark-ink 0.35s ease-out both;
+}
+.mark-yellow {
+  background: #ffd84d99;
+}
+.mark-green {
+  background: #8fdd7a8c;
+}
+.mark-blue {
+  background: #7ec8ff8c;
+}
+.mark-pink {
+  background: #ff97c08c;
+}
+.mark.has-note::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: -5px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #b7791f;
+  box-shadow: 0 0 0 2px #fff;
+  mix-blend-mode: normal;
+}
+.page-note-pin {
+  right: 10px;
+  width: 22px;
+  height: 22px;
+  border-radius: 3px 3px 3px 10px;
+  background: #f5d36b;
+  box-shadow: 0 2px 6px #0003;
+  mix-blend-mode: normal;
+  cursor: pointer;
+}
+.page-note-pin::before {
+  content: '';
+  position: absolute;
+  inset: 7px 6px;
+  border-block: 1.5px solid #7a5a16;
+}
+@keyframes mark-ink {
+  from {
+    opacity: 0;
+    clip-path: inset(0 100% 0 0);
+  }
+}
+.reader-stage.selecting {
+  touch-action: pan-x pan-y pinch-zoom;
+  cursor: text;
+}
+.reader-stage.selecting .textLayer ::selection {
+  background: #ffd84d80;
+}
+.notes-toggle {
+  position: relative;
+}
+.notes-toggle .notes-count {
+  position: absolute;
+  top: 3px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #1b150e;
+  font: 600 9px/15px var(--font-sans);
+}
+.reader-header-actions button[aria-pressed='true'] {
+  background: var(--accent);
+  color: #1b150e;
+}
+.mark-popover {
+  position: fixed;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  max-width: min(320px, calc(100vw - 16px));
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px #0006;
+  animation: panel-unfold 0.18s ease both;
+}
+.mark-popover-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.mark-swatches {
+  display: flex;
+  gap: 6px;
+}
+.swatch {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 50%;
+  border: 2px solid #fff3;
+  display: grid;
+  place-items: center;
+  color: #2a1f0c;
+  transition: scale 0.12s;
+}
+.swatch:hover {
+  scale: 1.12;
+}
+.swatch[aria-pressed='true'] {
+  border-color: var(--text);
+}
+.swatch-yellow {
+  background: #ffd84d;
+}
+.swatch-green {
+  background: #8fdd7a;
+}
+.swatch-blue {
+  background: #7ec8ff;
+}
+.swatch-pink {
+  background: #ff97c0;
+}
+.mark-note-button,
+.mark-done,
+.mark-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 12px;
+}
+.mark-icon {
+  padding: 5px 7px;
+}
+.reader .mark-done {
+  margin-left: auto;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #1b150e;
+  font-weight: 600;
+}
+.reader .mark-done:disabled {
+  opacity: 0.5;
+}
+.mark-note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mark-note textarea,
+.page-note-form textarea {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: 14px/1.5 var(--font-sans);
+}
+.mark-popover .mark-note textarea {
+  width: min(300px, calc(100vw - 34px));
+}
+.marking-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 40;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 5px 5px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #1b150e;
+  font: 600 12px var(--font-sans);
+  white-space: nowrap;
+  box-shadow: 0 6px 20px #0005;
+  animation: panel-unfold 0.2s ease both;
+}
+.marking-hint button {
+  min-height: 28px;
+  padding: 3px 12px;
+  border: 0;
+  border-radius: 999px;
+  background: #1b150e;
+  color: #f1e7d3;
+  font-size: 12px;
+}
+.notes-panel {
+  position: absolute;
+  top: 61px;
+  right: 14px;
+  bottom: 64px;
+  z-index: 55;
+  width: min(360px, calc(100% - 28px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px;
+  overflow: auto;
+  background: var(--raised);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 40px #0006;
+  animation: notes-slide 0.25s cubic-bezier(0.3, 0.7, 0.2, 1) both;
+}
+@keyframes notes-slide {
+  from {
+    opacity: 0;
+    translate: 24px 0;
+  }
+}
+.page-note-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.page-note-form textarea {
+  min-height: 64px;
+}
+.note-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0;
+  margin: 0;
+}
+.note-item {
+  border-left: 4px solid #f5d36b;
+  border-radius: 6px;
+  background: var(--surface);
+  padding: 10px 10px 8px 12px;
+}
+.note-green {
+  border-color: #8fdd7a;
+}
+.note-blue {
+  border-color: #7ec8ff;
+}
+.note-pink {
+  border-color: #ff97c0;
+}
+.note-yellow {
+  border-color: #ffd84d;
+}
+.note-jump {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.note-page {
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.note-jump q {
+  font: italic 15px/1.45 var(--font-serif);
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.note-jump p {
+  white-space: pre-wrap;
+}
+.note-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  margin-top: 4px;
+}
+.note-actions button {
+  min-height: 30px;
+  padding: 4px 8px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+}
+.note-actions button:hover {
+  color: var(--accent);
+}
+.notes-empty {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.6;
+}
+@media (max-width: 600px) {
+  .reader-header-actions button {
+    width: 34px;
+    min-width: 34px;
+    padding: 7px;
+  }
+  .reader-header {
+    max-width: calc(100% - 226px);
+  }
+  .notes-panel {
+    top: auto;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    width: auto;
+    max-height: 70dvh;
+  }
+  .marking-hint {
+    top: auto;
+    bottom: 64px;
+  }
+}
