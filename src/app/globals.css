@@ -902,10 +902,6 @@ dialog::backdrop {
   }
 }
 
-/* A closed cover sits in the center of the reading surface. */
-.flip-book.closed-book {
-  transform: translateX(-25%);
-}
 @media (max-width: 600px) {
   .reader-options {
     flex-wrap: nowrap;

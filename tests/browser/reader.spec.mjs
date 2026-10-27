@@ -827,3 +827,86 @@ test('magic can be paused and landscape reader keeps controls clear', async ({
     ).violations,
   ).toEqual([]);
 });
+
+test('mid-page drags turn a long book without rebuilding it, and quick taps queue', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  await page.goto('./');
+  await page
+    .locator('#book-upload')
+    .setInputFiles(resolve('tests/fixtures/long.pdf'));
+  await page.getByRole('button', { name: 'Save to library' }).click();
+  await page.getByRole('link', { name: 'Read long', exact: true }).click();
+  await expect(page.locator('.react-pdf__Page__canvas').first()).toBeVisible();
+  await expect(page.locator('.flip-book')).toHaveClass(/closed-book/);
+  await page.getByRole('button', { name: 'Next page', exact: true }).click();
+  await expect(page.locator('#page-number')).toHaveValue('2');
+  await expect(page.locator('.flip-book')).not.toHaveClass(/closed-book/);
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  const book = await page.locator('.book-position').boundingBox();
+  const y = book.y + book.height * 0.5;
+  // A curl that overflows the stage must not add scrollbars or remount the engine.
+  await page.mouse.move(book.x + book.width * 0.8, y);
+  await page.mouse.down();
+  for (let i = 1; i <= 6; i++)
+    await page.mouse.move(book.x + book.width * (0.8 - 0.1 * i), y);
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'true',
+  );
+  expect(
+    await page.evaluate(() => {
+      const stage = document.querySelector('.reader-stage');
+      return stage.clientWidth === stage.offsetWidth;
+    }),
+  ).toBe(true);
+  await page.mouse.up();
+  await expect(page.locator('#page-number')).toHaveValue('4');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  // A short flick toward the spine completes the turn.
+  await page.mouse.move(book.x + book.width * 0.7, y);
+  await page.mouse.down();
+  await page.mouse.move(book.x + book.width * 0.6, y, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.locator('#page-number')).toHaveValue('6');
+  await expect(page.locator('.reader-stage')).toHaveAttribute(
+    'aria-busy',
+    'false',
+  );
+  // Three taps faster than one turn each become three turns.
+  await page.evaluate(() => {
+    const rect = document
+      .querySelector('.book-position')
+      .getBoundingClientRect();
+    const x = rect.left + rect.width * 0.75,
+      y = rect.top + rect.height * 0.5;
+    const target = document.elementFromPoint(x, y);
+    const init = {
+      bubbles: true,
+      clientX: x,
+      clientY: y,
+      pointerType: 'mouse',
+      button: 0,
+      pointerId: 1,
+      isPrimary: true,
+    };
+    for (let i = 0; i < 3; i++) {
+      target.dispatchEvent(new PointerEvent('pointerdown', init));
+      target.dispatchEvent(new PointerEvent('pointerup', init));
+    }
+  });
+  await expect(page.locator('#page-number')).toHaveValue('12', {
+    timeout: 10000,
+  });
+  expect(await page.locator('.stf__block').count()).toBe(1);
+  expect(errors).toEqual([]);
+});

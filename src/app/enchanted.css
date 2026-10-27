@@ -464,11 +464,128 @@ button.danger:hover {
   top: 0;
   transform-origin: 0 0;
 }
-.flip-book {
-  filter: drop-shadow(0 10px 12px #0004);
+/* At fit size nothing needs scrolling; a rising curl must not flash scrollbars. */
+.reader-stage:not(.zoomed) {
+  overflow: hidden;
 }
+.book-position {
+  animation: book-arrive 0.7s ease-out both;
+}
+.flip-book {
+  filter: drop-shadow(0 10px 12px #0004) drop-shadow(0 28px 40px #0005);
+  transition: transform 0.7s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+/* A lone cover is centered, and slides aside as the turn that opens it begins. */
 .flip-book.closed-book {
   transform: translateX(-25%);
+}
+.flip-book.back-cover {
+  transform: translateX(25%);
+}
+/* Before the engine adopts them, pages are plain children; never let them stack. */
+.flip-book > .pdf-sheet {
+  display: none;
+}
+/* Page-edge thickness: read pages gather on the left, unread on the right. */
+.book-position.spread .flip-book::before,
+.book-position.spread .flip-book::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  bottom: 3px;
+  pointer-events: none;
+  background: repeating-linear-gradient(90deg, #f3ecdc 0 1px, #bdb19a 1px 2px);
+  box-shadow: inset 0 0 3px #0005;
+  transition: width 0.5s ease;
+}
+.book-position.spread .flip-book::before {
+  right: 100%;
+  width: var(--edge-left);
+  border-radius: 3px 0 0 3px;
+}
+.book-position.spread .flip-book::after {
+  left: 100%;
+  width: var(--edge-right);
+  border-radius: 0 3px 3px 0;
+}
+.book-position.pose-front .flip-book::before,
+.book-position.pose-back .flip-book::after {
+  width: 0;
+}
+/* The gutter: paper curves into the spine. */
+.book-position.spread .pdf-sheet:not(.--hard)::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.book-position.spread .pdf-sheet.--left:not(.--hard)::before {
+  background:
+    linear-gradient(to left, #0000002e, #0000000d 5%, #0000 14%),
+    linear-gradient(to right, #ffffff14, #0000 6%);
+}
+.book-position.spread .pdf-sheet.--right:not(.--hard)::before {
+  background:
+    linear-gradient(to right, #0000002e, #0000000d 5%, #0000 14%),
+    linear-gradient(to left, #ffffff14, #0000 6%);
+}
+/* A soft arrow on the side a click will turn toward. */
+.turn-hint {
+  position: absolute;
+  top: 50%;
+  width: 34px;
+  height: 64px;
+  margin-top: -32px;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 0.25s ease,
+    translate 0.25s ease;
+}
+.turn-hint::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  border: solid var(--accent);
+  border-width: 2px 2px 0 0;
+  translate: -50% -50%;
+}
+.turn-hint.prev {
+  right: calc(100% + 6px);
+  translate: 6px 0;
+}
+.turn-hint.prev::before {
+  rotate: -135deg;
+}
+.turn-hint.next {
+  left: calc(100% + 6px);
+  translate: -6px 0;
+}
+.turn-hint.next::before {
+  rotate: 45deg;
+}
+.book-position.pose-front .turn-hint.next {
+  left: calc(75% + 6px);
+}
+.book-position.pose-back .turn-hint.prev {
+  right: calc(75% + 6px);
+}
+.reader-stage[data-aim='prev'] .turn-hint.prev,
+.reader-stage[data-aim='next'] .turn-hint.next {
+  opacity: 0.85;
+  translate: 0 0;
+}
+.reader-stage[data-aim] {
+  cursor: pointer;
+}
+@keyframes book-arrive {
+  from {
+    opacity: 0;
+  }
 }
 .book-position.portrait .flip-book {
   max-width: 100% !important;
@@ -778,6 +895,138 @@ button.danger:hover {
 }
 .reader[data-controls='hidden'] .reader-chrome * {
   pointer-events: none;
+}
+/* Controls drift in from the edges they live on. */
+.reader-chrome > .reader-header,
+.reader-chrome > .reader-header-actions,
+.reader-chrome > .bookmarks-dock,
+.reader-chrome > .page-navigation,
+.reader-chrome > .zoom-dock,
+.reader-chrome > .reading-footer {
+  transition: translate 0.3s cubic-bezier(0.3, 0.7, 0.2, 1);
+}
+.reader[data-controls='hidden'] .reader-header,
+.reader[data-controls='hidden'] .reader-header-actions,
+.reader[data-controls='hidden'] .bookmarks-dock {
+  translate: 0 -12px;
+}
+.reader[data-controls='hidden'] .page-navigation,
+.reader[data-controls='hidden'] .zoom-dock,
+.reader[data-controls='hidden'] .reading-footer {
+  translate: 0 12px;
+}
+.reader .page-navigation button,
+.reader .zoom-dock button,
+.reader-header-actions button {
+  transition:
+    background-color 0.15s,
+    color 0.15s,
+    scale 0.12s;
+}
+.reader .page-navigation button:hover:not(:disabled),
+.reader .zoom-dock button:hover:not(:disabled) {
+  background: var(--surface);
+  color: var(--accent);
+}
+.reader .page-navigation button:active:not(:disabled),
+.reader .zoom-dock button:active:not(:disabled),
+.reader-header-actions button:active {
+  scale: 0.9;
+}
+.reading-footer progress::-webkit-progress-value {
+  transition: width 0.5s ease;
+}
+/* In book-only view, a quiet page number surfaces after each turn. */
+.page-toast {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  z-index: 25;
+  translate: -50% 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #000a;
+  color: #f1e7d3;
+  font: 600 13px var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  animation: toast-surface 1.8s ease both;
+}
+.page-toast small {
+  font-weight: 400;
+  opacity: 0.7;
+}
+@keyframes toast-surface {
+  0% {
+    opacity: 0;
+    translate: -50% 8px;
+  }
+  15%,
+  70% {
+    opacity: 1;
+    translate: -50% 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+/* Pages not yet painted shimmer like paper catching light. */
+.pdf-sheet .page-loading {
+  color: #9a917f;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  background: linear-gradient(100deg, #f6f2ea 35%, #fffdf8 50%, #f6f2ea 65%) 0
+    0 / 300% 100%;
+  animation: paper-shimmer 1.6s linear infinite;
+}
+@keyframes paper-shimmer {
+  to {
+    background-position: -150% 0;
+  }
+}
+/* While the PDF opens, a single leaf keeps turning. */
+.reader-stage .reader-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  color: var(--muted);
+  font: italic 20px var(--font-serif);
+}
+.reader-stage .reader-loading[role='status']::before {
+  content: '';
+  width: 26px;
+  height: 34px;
+  margin-left: 26px;
+  border: 2px solid var(--accent);
+  border-left-width: 1px;
+  border-radius: 1px 5px 5px 1px;
+  transform-origin: left center;
+  animation: leaf-turn 1.3s cubic-bezier(0.5, 0, 0.3, 1) infinite;
+}
+@keyframes leaf-turn {
+  0% {
+    transform: perspective(180px) rotateY(0);
+  }
+  70%,
+  100% {
+    transform: perspective(180px) rotateY(-180deg);
+  }
+}
+/* Candlelight breathes faintly at the edges of the reading room. */
+.reader[data-theme='wizard']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 45%, #0000 68%, #00000038 100%);
+  animation: candle-breath 7s ease-in-out infinite;
+}
+@keyframes candle-breath {
+  50% {
+    opacity: 0.7;
+  }
 }
 @keyframes candle-drift {
   0%,
