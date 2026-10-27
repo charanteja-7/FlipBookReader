@@ -1,56 +1,41 @@
 import { openDB } from 'idb';
-
-const DB_NAME = 'book-reader-db';
-const DB_VERSION = 1;
-const STORE_NAME = 'books';
-
-export const initDB = async () => {
-  return openDB(DB_NAME, DB_VERSION, {
+// Keep the original database name and schema so existing books survive the upgrade.
+export const initDB = () =>
+  openDB('book-reader-db', 1, {
     upgrade(db) {
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME, { keyPath: 'id' });
-      }
+      if (!db.objectStoreNames.contains('books'))
+        db.createObjectStore('books', { keyPath: 'id' });
     },
   });
-};
-
-export const addBook = async (book) => {
-  const db = await initDB();
-  return db.put(STORE_NAME, book);
-};
-
-export const getAllBooks = async () => {
-  const db = await initDB();
-  return db.getAll(STORE_NAME);
-};
-
-export const getBook = async (id) => {
-  const db = await initDB();
-  return db.get(STORE_NAME, id);
-};
-
-export const deleteBook = async (id) => {
-  const db = await initDB();
-  return db.delete(STORE_NAME, id);
-};
-
-export const updateBookProgress = async (id, lastReadPage) => {
-  const db = await initDB();
-  const book = await db.get(STORE_NAME, id);
-  if (book) {
-    book.lastReadPage = lastReadPage;
-    book.lastReadDate = new Date();
-    await db.put(STORE_NAME, book);
+export const addBook = async (book) => (await initDB()).put('books', book);
+export const getAllBooks = async () => (await initDB()).getAll('books');
+export const getBook = async (id) => (await initDB()).get('books', id);
+export const deleteBook = async (id) => (await initDB()).delete('books', id);
+export const clearBooks = async () => (await initDB()).clear('books');
+export async function updateBook(id, updates) {
+  const tx = (await initDB()).transaction('books', 'readwrite');
+  const book = await tx.store.get(id);
+  if (book) await tx.store.put({ ...book, ...updates });
+  await tx.done;
+  return book ? { ...book, ...updates } : null;
+}
+export const updateBookProgress = (id, lastReadPage) =>
+  updateBook(id, { lastReadPage, lastReadDate: new Date() });
+export async function importReadingData(records) {
+  const tx = (await initDB()).transaction('books', 'readwrite');
+  let count = 0;
+  for (const record of records) {
+    const book = await tx.store.get(record.id);
+    if (!book) continue;
+    const max = (book.numPages || Number.MAX_SAFE_INTEGER) - 1;
+    await tx.store.put({
+      ...book,
+      ...record,
+      lastReadPage: Math.min(record.lastReadPage, max),
+      bookmarks: record.bookmarks.filter((n) => n <= max),
+    });
+    count++;
   }
-};
-
-export const updateBook = async (id, updates) => {
-  const db = await initDB();
-  const book = await db.get(STORE_NAME, id);
-  if (book) {
-    const updatedBook = { ...book, ...updates };
-    await db.put(STORE_NAME, updatedBook);
-    return updatedBook;
-  }
-  return null;
-};
+  await tx.done;
+  return count;
+}
