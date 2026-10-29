@@ -1751,7 +1751,7 @@ button.danger:hover {
     padding: 7px;
   }
   .reader-header {
-    max-width: calc(100% - 226px);
+    max-width: calc(100% - 238px);
   }
   .notes-panel {
     top: auto;
